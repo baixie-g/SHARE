@@ -22,16 +22,16 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link active" href="/">首页</a>
+                        <button class="nav-link active btn btn-link border-0" onclick="navigateTo('home')">首页</button>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/files">文件浏览</a>
+                        <button class="nav-link btn btn-link border-0" onclick="navigateTo('files')">文件浏览</button>
                     </li>
                     <li class="nav-item" id="upload-nav" style="display: none;">
-                        <a class="nav-link" href="/upload">文件上传</a>
+                        <button class="nav-link btn btn-link border-0" onclick="navigateTo('upload')">文件上传</button>
                     </li>
                     <li class="nav-item" id="admin-nav" style="display: none;">
-                        <a class="nav-link" href="/admin">系统管理</a>
+                        <button class="nav-link btn btn-link border-0" onclick="navigateTo('admin')">系统管理</button>
                     </li>
                 </ul>
                 <ul class="navbar-nav" id="auth-nav">
@@ -53,10 +53,10 @@
                             <span id="username-display"></span>
                         </a>
                         <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="/profile">个人资料</a></li>
-                            <li><a class="dropdown-item" href="/my-files">我的文件</a></li>
+                            <li><button class="dropdown-item btn btn-link border-0 w-100 text-start" onclick="navigateTo('profile')">个人资料</button></li>
+                            <li><button class="dropdown-item btn btn-link border-0 w-100 text-start" onclick="navigateTo('my-files')">我的文件</button></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="#" onclick="logout()">退出登录</a></li>
+                            <li><button class="dropdown-item btn btn-link border-0 w-100 text-start" onclick="logout()">退出登录</button></li>
                         </ul>
                     </li>
                 </ul>

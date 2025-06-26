@@ -331,6 +331,55 @@ std::string handle_processes(const std::string& body, const std::map<std::string
     return JsonHelper::serialize_processes(processes);
 }
 
+// 文件下载
+void handle_download_route(const HttpRequest& request, HttpResponse& response) {
+    auto it = request.params.find("id");
+    if (it == request.params.end()) {
+        response.body = JsonHelper::error_response("Missing file ID");
+        response.headers["Content-Type"] = "application/json";
+        return;
+    }
+    
+    int file_id = std::stoi(it->second);
+    FileInfo* file = g_database->getFileById(file_id);
+    
+    if (!file) {
+        response.body = JsonHelper::error_response("File not found");
+        response.headers["Content-Type"] = "application/json";
+        delete file;
+        return;
+    }
+    
+    // 检查文件是否存在
+    std::ifstream filestream(file->filepath, std::ios::binary);
+    if (!filestream.is_open()) {
+        response.body = JsonHelper::error_response("File not accessible");
+        response.headers["Content-Type"] = "application/json";
+        delete file;
+        return;
+    }
+    
+    // 读取文件内容
+    filestream.seekg(0, std::ios::end);
+    size_t file_size = filestream.tellg();
+    filestream.seekg(0, std::ios::beg);
+    
+    std::string file_content(file_size, '\0');
+    filestream.read(&file_content[0], file_size);
+    filestream.close();
+    
+    // 设置响应头
+    response.body = file_content;
+    response.headers["Content-Type"] = file->mime_type.empty() ? "application/octet-stream" : file->mime_type;
+    response.headers["Content-Disposition"] = "attachment; filename=\"" + file->filename + "\"";
+    response.headers["Content-Length"] = std::to_string(file_size);
+    
+    // 更新下载次数
+    g_database->incrementDownloadCount(file_id);
+    
+    delete file;
+}
+
 int main() {
     std::cout << "启动 g00j小站 文件共享系统..." << std::endl;
     
@@ -368,6 +417,7 @@ int main() {
     g_server->add_post_route("/api/upload", handle_upload_route);
     
     g_server->add_route("/api/files", handle_get_files_route);
+    g_server->add_route("/api/download", handle_download_route);
     g_server->add_route("/api/system/status", handle_system_status_route);
     g_server->add_route("/api/system/processes", handle_processes_route);
     

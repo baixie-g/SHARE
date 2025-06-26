@@ -385,13 +385,13 @@ int Database::addFileRecord(const std::string& filename, const std::string& file
 }
 
 std::vector<FileInfo> Database::getFiles(int limit, int offset, const std::string& category) {
-    std::string sql = "SELECT id, filename, filepath, category, size, mime_type, uploader_id, uploaded_at FROM files";
+    std::string sql = "SELECT id, filename, filepath, category, file_size, file_type, uploader_id, upload_time FROM files";
     
     if (!category.empty()) {
         sql += " WHERE category = ?";
     }
     
-    sql += " ORDER BY uploaded_at DESC LIMIT ? OFFSET ?";
+    sql += " ORDER BY upload_time DESC LIMIT ? OFFSET ?";
     
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
@@ -413,10 +413,16 @@ std::vector<FileInfo> Database::getFiles(int limit, int offset, const std::strin
         file.filename = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         file.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
         file.category = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
-        file.size = sqlite3_column_int64(stmt, 4);
-        file.mime_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        file.size = sqlite3_column_int64(stmt, 4);                    // file_size
+        file.mime_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));  // file_type
         file.uploader_id = sqlite3_column_int(stmt, 6);
-        file.uploaded_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+        file.upload_time = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7)); // upload_time
+        
+        // 设置其他字段的默认值
+        file.uploader = "User " + std::to_string(file.uploader_id);
+        file.download_count = 0;
+        file.is_public = true;
+        
         files.push_back(file);
     }
     
@@ -425,7 +431,7 @@ std::vector<FileInfo> Database::getFiles(int limit, int offset, const std::strin
 }
 
 FileInfo* Database::getFileById(int file_id) {
-    const char* sql = "SELECT id, filename, filepath, category, size, mime_type, uploader_id, uploaded_at FROM files WHERE id = ?";
+    const char* sql = "SELECT id, filename, filepath, category, file_size, file_type, uploader_id, upload_time FROM files WHERE id = ?";
     sqlite3_stmt* stmt;
     
     int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
@@ -442,10 +448,10 @@ FileInfo* Database::getFileById(int file_id) {
         file->filename = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
         file->filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
         file->category = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
-        file->size = sqlite3_column_int64(stmt, 4);
-        file->mime_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        file->size = sqlite3_column_int64(stmt, 4);                    // file_size
+        file->mime_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));  // file_type
         file->uploader_id = sqlite3_column_int(stmt, 6);
-        file->uploaded_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+        file->upload_time = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7)); // upload_time
     }
     
     sqlite3_finalize(stmt);
@@ -600,8 +606,25 @@ bool Database::create_session(const std::string& session_id, const std::string& 
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     
-    return rc == SQLITE_DONE;
+        return rc == SQLITE_DONE;
 }
+
+bool Database::incrementDownloadCount(int file_id) {
+    const char* sql = "UPDATE files SET download_count = download_count + 1 WHERE id = ?";
+    sqlite3_stmt* stmt;
+    
+    int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return false;
+    }
+    
+    sqlite3_bind_int(stmt, 1, file_id);
+    
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    
+    return rc == SQLITE_DONE;
+} 
 
 bool Database::create_user(const std::string& username, const std::string& password, const std::string& role) {
     return createUser(username, password, role);

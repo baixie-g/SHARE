@@ -603,6 +603,29 @@ int Database::getTotalFileCount() {
     return getTotalFileCount("");
 }
 
+
+
 bool Database::verify_password(const std::string& username, const std::string& password) {
-    return verifyPassword(username, password);
+    // 获取用户的密码哈希
+    sqlite3_stmt* stmt;
+    std::string sql = "SELECT password_hash FROM users WHERE username = ? AND active = 1";
+    
+    if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    
+    sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_STATIC);
+    
+    bool result = false;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* stored_hash = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        if (stored_hash) {
+            // 简单的密码验证：比较哈希值
+            std::string input_hash = hashPassword(password);
+            result = (input_hash == std::string(stored_hash));
+        }
+    }
+    
+    sqlite3_finalize(stmt);
+    return result;
 } 

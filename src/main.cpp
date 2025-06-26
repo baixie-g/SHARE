@@ -5,6 +5,9 @@
 #include <thread>
 #include <chrono>
 #include <algorithm>
+#include <fstream>
+#include <ctime>
+#include <sys/stat.h>
 #include "server.h"
 #include "database.h"
 #include "file_manager.h"
@@ -95,7 +98,13 @@ void handle_get_files_route(const HttpRequest& request, HttpResponse& response) 
 }
 
 void handle_upload_route(const HttpRequest& request, HttpResponse& response) {
-    std::string result = handle_upload(request.body, request.params);
+    // 将headers和params合并传递给handle_upload
+    std::map<std::string, std::string> combined_params = request.params;
+    for (const auto& header : request.headers) {
+        combined_params[header.first] = header.second;
+    }
+    
+    std::string result = handle_upload(request.body, combined_params);
     response.body = result;
     response.headers["Content-Type"] = "application/json";
 }
@@ -150,25 +159,25 @@ std::string handle_register(const std::string& body, const std::map<std::string,
     std::string password = form_data["password"];
     
     if (username.empty() || password.empty()) {
-        return JsonHelper::error_response("用户名和密码不能为空");
+        return JsonHelper::error_response("Username and password are required");
     }
     
     if (username.length() < 3 || password.length() < 6) {
-        return JsonHelper::error_response("用户名至少3位，密码至少6位");
+        return JsonHelper::error_response("Username must be at least 3 characters, password at least 6");
     }
     
     if (g_database->create_user(username, password)) {
-        return JsonHelper::success_response("注册成功");
+        return JsonHelper::success_response("Registration successful");
     }
     
-    return JsonHelper::error_response("用户名已存在");
+    return JsonHelper::error_response("Username already exists");
 }
 
 // 用户登出
 std::string handle_logout(const std::string& body, const std::map<std::string, std::string>& params) {
     // 这里应该从Cookie中获取session_id，简化处理
     return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: session_id=; Path=/; Max-Age=0\r\n\r\n" + 
-           JsonHelper::success_response("登出成功");
+           JsonHelper::success_response("Logout successful");
 }
 
 // 获取文件列表
@@ -199,10 +208,113 @@ std::string handle_get_files(const std::string& body, const std::map<std::string
     return JsonHelper::paginated_response(files_json, total, page, limit);
 }
 
+// 简化的multipart/form-data解析
+std::map<std::string, std::string> parse_multipart_fields(const std::string& body, const std::string& boundary) {
+    std::map<std::string, std::string> fields;
+    
+    size_t pos = 0;
+    while (pos < body.length()) {
+        size_t boundary_pos = body.find("--" + boundary, pos);
+        if (boundary_pos == std::string::npos) break;
+        
+        size_t content_start = body.find("\r\n\r\n", boundary_pos);
+        if (content_start == std::string::npos) break;
+        
+        std::string headers = body.substr(boundary_pos, content_start - boundary_pos);
+        content_start += 4; // 跳过"\r\n\r\n"
+        
+        size_t content_end = body.find("\r\n--" + boundary, content_start);
+        if (content_end == std::string::npos) content_end = body.length();
+        
+        std::string content = body.substr(content_start, content_end - content_start);
+        
+        // 解析字段名
+        size_t name_pos = headers.find("name=\"");
+        if (name_pos != std::string::npos) {
+            name_pos += 6;
+            size_t name_end = headers.find("\"", name_pos);
+            if (name_end != std::string::npos) {
+                std::string field_name = headers.substr(name_pos, name_end - name_pos);
+                fields[field_name] = content;
+            }
+        }
+        
+        pos = content_end;
+    }
+    
+    return fields;
+}
+
 // 文件上传
 std::string handle_upload(const std::string& body, const std::map<std::string, std::string>& params) {
-    // 简化的文件上传处理，实际应该解析multipart/form-data
-    return JsonHelper::error_response("文件上传功能正在开发中");
+    try {
+        // 从Content-Type中提取boundary (检查多种格式)
+        auto content_type_it = params.find("Content-Type");
+        if (content_type_it == params.end()) {
+            content_type_it = params.find("content-type");
+        }
+        if (content_type_it == params.end()) {
+            // 调试：打印所有headers
+            std::string debug_headers = "Headers: ";
+            for (const auto& p : params) {
+                debug_headers += p.first + "=" + p.second + "; ";
+            }
+            return JsonHelper::error_response("Missing Content-Type header. " + debug_headers);
+        }
+        
+        std::string content_type = content_type_it->second;
+        size_t boundary_pos = content_type.find("boundary=");
+        if (boundary_pos == std::string::npos) {
+            return JsonHelper::error_response("Missing boundary in Content-Type");
+        }
+        
+        std::string boundary = content_type.substr(boundary_pos + 9);
+        
+        // 解析multipart数据
+        auto fields = parse_multipart_fields(body, boundary);
+        
+        auto file_it = fields.find("file");
+        auto category_it = fields.find("category");
+        
+        if (file_it == fields.end()) {
+            return JsonHelper::error_response("No file provided");
+        }
+        
+        std::string category = "others";
+        if (category_it != fields.end()) {
+            category = category_it->second;
+        }
+        
+        // 简化实现：生成文件名和保存文件
+        std::string filename = "uploaded_" + std::to_string(time(nullptr)) + ".txt";
+        std::string filepath = "shared/" + category + "/" + filename;
+        
+        // 确保目录存在
+        std::string dir_path = "shared/" + category;
+        mkdir(dir_path.c_str(), 0755);
+        
+        // 保存文件
+        std::ofstream file(filepath, std::ios::binary);
+        if (!file.is_open()) {
+            return JsonHelper::error_response("Failed to save file");
+        }
+        
+        file.write(file_it->second.c_str(), file_it->second.length());
+        file.close();
+        
+        // 添加到数据库
+        long file_size = file_it->second.length();
+        bool success = g_database->addFile(filename, filepath, "application/octet-stream", file_size, 1, category);
+        
+        if (success) {
+            return JsonHelper::success_response("File uploaded successfully");
+        } else {
+            return JsonHelper::error_response("Failed to save file info to database");
+        }
+        
+    } catch (const std::exception& e) {
+        return JsonHelper::error_response("Upload failed: Internal error");
+    }
 }
 
 // 系统状态监控

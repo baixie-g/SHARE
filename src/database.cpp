@@ -636,4 +636,29 @@ bool Database::verify_password(const std::string& username, const std::string& p
     
     sqlite3_finalize(stmt);
     return result;
+}
+
+bool Database::addFile(const std::string& filename, const std::string& filepath, 
+                       const std::string& file_type, long file_size, int uploader_id, 
+                       const std::string& category, bool is_public) {
+    const char* sql = "INSERT INTO files (filename, filepath, file_type, file_size, uploader_id, category, is_public) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    sqlite3_stmt* stmt;
+    
+    int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return false;
+    }
+    
+    sqlite3_bind_text(stmt, 1, filename.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, filepath.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, file_type.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int64(stmt, 4, file_size);
+    sqlite3_bind_int(stmt, 5, uploader_id);
+    sqlite3_bind_text(stmt, 6, category.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 7, is_public ? 1 : 0);
+    
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    
+    return rc == SQLITE_DONE;
 } 

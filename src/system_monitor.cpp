@@ -340,9 +340,9 @@ std::string SystemMonitor::get_uptime() {
     
     std::ostringstream result;
     if (days > 0) {
-        result << days << "天 ";
+        result << days << " days ";
     }
-    result << hours << "小时 " << minutes << "分钟";
+    result << hours << " hours " << minutes << " minutes";
     
     return result.str();
 }

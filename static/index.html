@@ -4,250 +4,215 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>g00j小站 - 文件共享系统</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="/static/css/style.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
 </head>
 <body>
-    <!-- 导航栏 -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container">
-            <a class="navbar-brand" href="/">
-                <i class="bi bi-cloud-arrow-up me-2"></i>
-                g00j小站
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <button class="nav-link active btn btn-link border-0" onclick="navigateTo('home')">首页</button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link btn btn-link border-0" onclick="navigateTo('files')">文件浏览</button>
-                    </li>
-                    <li class="nav-item" id="upload-nav" style="display: none;">
-                        <button class="nav-link btn btn-link border-0" onclick="navigateTo('upload')">文件上传</button>
-                    </li>
-                    <li class="nav-item" id="admin-nav" style="display: none;">
-                        <button class="nav-link btn btn-link border-0" onclick="navigateTo('admin')">系统管理</button>
-                    </li>
-                </ul>
-                <ul class="navbar-nav" id="auth-nav">
-                    <li class="nav-item">
-                        <button class="btn btn-outline-light me-2" data-bs-toggle="modal" data-bs-target="#loginModal">
-                            登录
-                        </button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="btn btn-light" data-bs-toggle="modal" data-bs-target="#registerModal">
-                            注册
-                        </button>
-                    </li>
-                </ul>
-                <ul class="navbar-nav" id="user-nav" style="display: none;">
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
-                            <i class="bi bi-person-circle me-1"></i>
-                            <span id="username-display"></span>
-                        </a>
-                        <ul class="dropdown-menu">
-                            <li><button class="dropdown-item btn btn-link border-0 w-100 text-start" onclick="navigateTo('profile')">个人资料</button></li>
-                            <li><button class="dropdown-item btn btn-link border-0 w-100 text-start" onclick="navigateTo('my-files')">我的文件</button></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><button class="dropdown-item btn btn-link border-0 w-100 text-start" onclick="logout()">退出登录</button></li>
-                        </ul>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
-
-    <!-- 主要内容 -->
-    <div class="container mt-4">
-        <!-- 欢迎区域 -->
-        <div class="row mb-4">
-            <div class="col-md-8">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body">
-                        <h2 class="card-title text-primary">
-                            <i class="bi bi-house-heart me-2"></i>
-                            欢迎来到 g00j小站
-                        </h2>
-                        <p class="card-text text-muted">
-                            轻量级文件共享系统，支持视频播放、文档阅读、图片预览等功能。
-                            游客可以预览文件，注册用户可以上传和下载文件。
-                        </p>
-                        <div class="d-flex gap-2">
-                            <a href="/files" class="btn btn-primary">
-                                <i class="bi bi-folder2-open me-1"></i>
-                                浏览文件
-                            </a>
-                            <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#registerModal">
-                                <i class="bi bi-person-plus me-1"></i>
-                                立即注册
-                            </button>
-                        </div>
+    <div id="app">
+        <!-- 导航栏 -->
+        <nav class="navbar">
+            <div class="nav-container">
+                <div class="nav-brand">
+                    <h1>📁 g00j小站</h1>
+                </div>
+                <div class="nav-menu">
+                    <a href="#" @click="currentView = 'home'" :class="{active: currentView === 'home'}">首页</a>
+                    <a href="#" @click="currentView = 'files'" :class="{active: currentView === 'files'}">文件管理</a>
+                    <a href="#" @click="currentView = 'monitor'" v-if="user && user.role === 'admin'" :class="{active: currentView === 'monitor'}">系统监控</a>
+                </div>
+                <div class="nav-auth">
+                    <div v-if="!user">
+                        <button @click="showLogin = true" class="btn btn-primary">登录</button>
+                        <button @click="showRegister = true" class="btn btn-secondary">注册</button>
+                    </div>
+                    <div v-else class="user-info">
+                        <span>欢迎, {{ user.username }} ({{ user.role }})</span>
+                        <button @click="logout" class="btn btn-danger">登出</button>
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body">
-                        <h5 class="card-title">
-                            <i class="bi bi-graph-up text-success me-2"></i>
-                            系统统计
-                        </h5>
-                        <div class="row text-center">
-                            <div class="col-6">
-                                <div class="text-primary fs-4 fw-bold" id="file-count">-</div>
-                                <small class="text-muted">共享文件</small>
-                            </div>
-                            <div class="col-6">
-                                <div class="text-success fs-4 fw-bold" id="user-count">-</div>
-                                <small class="text-muted">注册用户</small>
+        </nav>
+
+        <!-- 主内容区域 -->
+        <main class="main-content">
+            <!-- 首页视图 -->
+            <div v-if="currentView === 'home'" class="home-view">
+                <div class="hero-section">
+                    <h2>欢迎使用 g00j小站 文件共享系统</h2>
+                    <p>一个安全、高效的文件共享平台</p>
+                </div>
+                
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <h3>📁 文件管理</h3>
+                        <p>支持多种文件类型的上传、下载和预览</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🎥 在线播放</h3>
+                        <p>支持视频在线播放和文档在线阅读</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>🔐 权限管理</h3>
+                        <p>三级用户权限，确保数据安全</p>
+                    </div>
+                    <div class="feature-card">
+                        <h3>📊 系统监控</h3>
+                        <p>实时监控系统资源使用情况</p>
+                    </div>
+                </div>
+
+                <!-- 最新文件展示 -->
+                <div class="recent-files">
+                    <h3>最新共享文件</h3>
+                    <div class="file-grid">
+                        <div v-for="file in recentFiles" :key="file.id" class="file-item">
+                            <div class="file-icon">{{ getFileIcon(file.file_type) }}</div>
+                            <div class="file-info">
+                                <h4>{{ file.filename }}</h4>
+                                <p>{{ formatFileSize(file.file_size) }} | {{ file.upload_time }}</p>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- 最新文件 -->
-        <div class="row">
-            <div class="col-12">
-                <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-white border-0 d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">
-                            <i class="bi bi-clock-history text-primary me-2"></i>
-                            最新共享文件
-                        </h5>
-                        <a href="/files" class="btn btn-outline-primary btn-sm">
-                            查看全部 <i class="bi bi-arrow-right"></i>
-                        </a>
-                    </div>
-                    <div class="card-body p-0">
-                        <div id="recent-files" class="table-responsive">
-                            <table class="table table-hover mb-0">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th><i class="bi bi-file-earmark me-1"></i>文件名</th>
-                                        <th><i class="bi bi-tag me-1"></i>类型</th>
-                                        <th><i class="bi bi-hdd me-1"></i>大小</th>
-                                        <th><i class="bi bi-calendar me-1"></i>上传时间</th>
-                                        <th><i class="bi bi-gear me-1"></i>操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="file-list">
-                                    <tr>
-                                        <td colspan="5" class="text-center text-muted py-4">
-                                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                                            加载中...
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+            <!-- 文件管理视图 -->
+            <div v-if="currentView === 'files'" class="files-view">
+                <div class="files-header">
+                    <h2>文件管理</h2>
+                    <button v-if="user" @click="showUpload = true" class="btn btn-primary">上传文件</button>
+                </div>
+
+                <!-- 文件分类筛选 -->
+                <div class="file-filters">
+                    <button @click="filterCategory = ''" :class="{active: filterCategory === ''}" class="filter-btn">全部</button>
+                    <button @click="filterCategory = 'video'" :class="{active: filterCategory === 'video'}" class="filter-btn">视频</button>
+                    <button @click="filterCategory = 'document'" :class="{active: filterCategory === 'document'}" class="filter-btn">文档</button>
+                    <button @click="filterCategory = 'image'" :class="{active: filterCategory === 'image'}" class="filter-btn">图片</button>
+                    <button @click="filterCategory = 'other'" :class="{active: filterCategory === 'other'}" class="filter-btn">其他</button>
+                </div>
+
+                <!-- 文件列表 -->
+                <div class="files-list">
+                    <div v-for="file in filteredFiles" :key="file.id" class="file-row">
+                        <div class="file-icon">{{ getFileIcon(file.file_type) }}</div>
+                        <div class="file-name">{{ file.filename }}</div>
+                        <div class="file-size">{{ formatFileSize(file.file_size) }}</div>
+                        <div class="file-date">{{ file.upload_time }}</div>
+                        <div class="file-actions">
+                            <button @click="previewFile(file)" class="btn btn-sm btn-info">预览</button>
+                            <button v-if="user" @click="downloadFile(file)" class="btn btn-sm btn-success">下载</button>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <!-- 登录模态框 -->
-    <div class="modal fade" id="loginModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-box-arrow-in-right me-2"></i>
-                        用户登录
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            <!-- 系统监控视图 -->
+            <div v-if="currentView === 'monitor' && user && user.role === 'admin'" class="monitor-view">
+                <h2>系统监控</h2>
+                
+                <div class="monitor-grid">
+                    <div class="monitor-card">
+                        <h3>CPU 使用率</h3>
+                        <div class="progress-circle">
+                            <span class="progress-text">{{ systemStatus.cpu_usage }}%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="monitor-card">
+                        <h3>内存使用率</h3>
+                        <div class="progress-circle">
+                            <span class="progress-text">{{ systemStatus.memory_usage }}%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="monitor-card">
+                        <h3>磁盘使用率</h3>
+                        <div class="progress-circle">
+                            <span class="progress-text">{{ systemStatus.disk_usage }}%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="monitor-card">
+                        <h3>系统运行时间</h3>
+                        <p>{{ systemStatus.uptime }}</p>
+                    </div>
                 </div>
-                <div class="modal-body">
-                    <form id="loginForm">
-                        <div class="mb-3">
-                            <label class="form-label">用户名</label>
-                            <input type="text" class="form-control" id="loginUsername" required>
+
+                <!-- 进程列表 -->
+                <div class="processes-section">
+                    <h3>系统进程</h3>
+                    <div class="processes-table">
+                        <div class="table-header">
+                            <span>PID</span>
+                            <span>进程名</span>
+                            <span>用户</span>
+                            <span>CPU%</span>
+                            <span>内存%</span>
                         </div>
-                        <div class="mb-3">
-                            <label class="form-label">密码</label>
-                            <input type="password" class="form-control" id="loginPassword" required>
+                        <div v-for="process in processes.slice(0, 10)" :key="process.pid" class="table-row">
+                            <span>{{ process.pid }}</span>
+                            <span>{{ process.name }}</span>
+                            <span>{{ process.user }}</span>
+                            <span>{{ process.cpu_percent }}%</span>
+                            <span>{{ process.memory_percent }}%</span>
                         </div>
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-box-arrow-in-right me-1"></i>
-                                登录
-                            </button>
-                        </div>
-                    </form>
+                    </div>
                 </div>
+            </div>
+        </main>
+
+        <!-- 登录模态框 -->
+        <div v-if="showLogin" class="modal-overlay" @click="showLogin = false">
+            <div class="modal" @click.stop>
+                <h3>用户登录</h3>
+                <form @submit.prevent="login">
+                    <input v-model="loginForm.username" type="text" placeholder="用户名" required>
+                    <input v-model="loginForm.password" type="password" placeholder="密码" required>
+                    <button type="submit" class="btn btn-primary">登录</button>
+                    <button type="button" @click="showLogin = false" class="btn btn-secondary">取消</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 注册模态框 -->
+        <div v-if="showRegister" class="modal-overlay" @click="showRegister = false">
+            <div class="modal" @click.stop>
+                <h3>用户注册</h3>
+                <form @submit.prevent="register">
+                    <input v-model="registerForm.username" type="text" placeholder="用户名" required>
+                    <input v-model="registerForm.password" type="password" placeholder="密码" required>
+                    <input v-model="registerForm.confirmPassword" type="password" placeholder="确认密码" required>
+                    <button type="submit" class="btn btn-primary">注册</button>
+                    <button type="button" @click="showRegister = false" class="btn btn-secondary">取消</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 文件预览模态框 -->
+        <div v-if="showPreview" class="modal-overlay" @click="showPreview = false">
+            <div class="modal preview-modal" @click.stop>
+                <h3>{{ previewFile.filename }}</h3>
+                <div class="preview-content">
+                    <div v-if="previewFile.file_type.startsWith('video/')" class="video-preview">
+                        <video controls :src="`/api/stream/${previewFile.id}`"></video>
+                    </div>
+                    <div v-else-if="previewFile.file_type.startsWith('image/')" class="image-preview">
+                        <img :src="`/api/stream/${previewFile.id}`" alt="预览图片">
+                    </div>
+                    <div v-else-if="previewFile.file_type.startsWith('text/')" class="text-preview">
+                        <pre>{{ previewContent }}</pre>
+                    </div>
+                    <div v-else class="unsupported-preview">
+                        <p>该文件类型不支持预览</p>
+                    </div>
+                </div>
+                <button @click="showPreview = false" class="btn btn-secondary">关闭</button>
             </div>
         </div>
     </div>
 
-    <!-- 注册模态框 -->
-    <div class="modal fade" id="registerModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-person-plus me-2"></i>
-                        用户注册
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="registerForm">
-                        <div class="mb-3">
-                            <label class="form-label">用户名</label>
-                            <input type="text" class="form-control" id="registerUsername" required>
-                            <div class="form-text">用户名长度 3-20 个字符</div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">密码</label>
-                            <input type="password" class="form-control" id="registerPassword" required>
-                            <div class="form-text">密码长度至少 6 个字符</div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">确认密码</label>
-                            <input type="password" class="form-control" id="confirmPassword" required>
-                        </div>
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-success">
-                                <i class="bi bi-person-plus me-1"></i>
-                                注册
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Toast 消息 -->
-    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1050">
-        <div id="toast" class="toast" role="alert">
-            <div class="toast-header">
-                <strong class="me-auto" id="toast-title">消息</strong>
-                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
-            </div>
-            <div class="toast-body" id="toast-message"></div>
-        </div>
-    </div>
-
-    <!-- 脚本 -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/static/js/app.js"></script>
-    <script>
-        // 页面加载完成后初始化
-        document.addEventListener('DOMContentLoaded', function() {
-            checkAuthStatus();
-            loadRecentFiles();
-            loadStats();
-        });
-    </script>
+    <script src="js/app.js"></script>
 </body>
 </html> 

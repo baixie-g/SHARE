@@ -1,433 +1,396 @@
 #include "file_manager.h"
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
-#include <sstream>
 #include <algorithm>
-#include <random>
-#include <ctime>
-#include <sys/stat.h>
-#include <unistd.h>
 
 namespace fs = std::filesystem;
 
-FileManager::FileManager(const std::string& base_path) : base_path_(base_path) {
-    init_mime_types();
-    init_allowed_extensions();
-    
-    // 创建基础目录
-    create_directory(base_path_);
-    create_directory(base_path_ + "/videos");
-    create_directory(base_path_ + "/articles");
-    create_directory(base_path_ + "/images");
-    create_directory(base_path_ + "/documents");
-    create_directory(base_path_ + "/archives");
+FileManager::FileManager() : storage_root_("shared"), max_file_size_(50 * 1024 * 1024) {
+    initializeMimeTypes();
+    initializeAllowedTypes();
 }
 
-void FileManager::init_mime_types() {
-    mime_types_ = {
-        // 图片
-        {".jpg", "image/jpeg"},
-        {".jpeg", "image/jpeg"},
-        {".png", "image/png"},
-        {".gif", "image/gif"},
-        {".bmp", "image/bmp"},
-        {".svg", "image/svg+xml"},
-        {".webp", "image/webp"},
-        
-        // 视频
-        {".mp4", "video/mp4"},
-        {".avi", "video/x-msvideo"},
-        {".mkv", "video/x-matroska"},
-        {".mov", "video/quicktime"},
-        {".wmv", "video/x-ms-wmv"},
-        {".flv", "video/x-flv"},
-        {".webm", "video/webm"},
-        
-        // 文档
-        {".txt", "text/plain"},
-        {".md", "text/markdown"},
-        {".html", "text/html"},
-        {".css", "text/css"},
-        {".js", "application/javascript"},
-        {".json", "application/json"},
-        {".xml", "application/xml"},
-        {".pdf", "application/pdf"},
-        {".doc", "application/msword"},
-        {".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
-        {".xls", "application/vnd.ms-excel"},
-        {".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
-        {".ppt", "application/vnd.ms-powerpoint"},
-        {".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"},
-        
-        // 压缩文件
-        {".zip", "application/zip"},
-        {".rar", "application/x-rar-compressed"},
-        {".7z", "application/x-7z-compressed"},
-        {".tar", "application/x-tar"},
-        {".gz", "application/gzip"},
-        {".bz2", "application/x-bzip2"},
-        
-        // 音频
-        {".mp3", "audio/mpeg"},
-        {".wav", "audio/wav"},
-        {".flac", "audio/flac"},
-        {".ogg", "audio/ogg"}
-    };
+FileManager::~FileManager() {
 }
 
-void FileManager::init_allowed_extensions() {
-    allowed_extensions_ = {
-        // 图片
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp",
-        
-        // 视频
-        ".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm",
-        
-        // 文档
-        ".txt", ".md", ".html", ".css", ".js", ".json", ".xml", ".pdf",
-        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-        
-        // 压缩文件
-        ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2",
-        
-        // 音频
-        ".mp3", ".wav", ".flac", ".ogg"
-    };
-}
-
-std::string FileManager::save_uploaded_file(const std::string& content, 
-                                           const std::string& original_filename,
-                                           FileType type) {
-    if (!validate_filename(original_filename)) {
-        return "";
-    }
-    
-    if (!check_file_size_limit(content.length())) {
-        return "";
-    }
-    
-    std::string category_dir = get_file_category(type);
-    std::string target_dir = base_path_ + "/" + category_dir;
-    
-    if (!create_directory(target_dir)) {
-        return "";
-    }
-    
-    std::string sanitized_name = sanitize_filename(original_filename);
-    std::string unique_filename = generate_unique_filename(target_dir, sanitized_name);
-    std::string full_path = target_dir + "/" + unique_filename;
-    
-    std::ofstream file(full_path, std::ios::binary);
-    if (!file.is_open()) {
-        return "";
-    }
-    
-    file.write(content.c_str(), content.length());
-    file.close();
-    
-    // 返回相对路径
-    return category_dir + "/" + unique_filename;
-}
-
-bool FileManager::delete_file(const std::string& file_path) {
-    if (!is_safe_path(file_path)) {
+bool FileManager::initialize() {
+    if (!createDirectory(storage_root_)) {
         return false;
     }
     
-    std::string full_path = base_path_ + "/" + file_path;
+    return createCategoryDirectories();
+}
+
+bool FileManager::createCategoryDirectories() {
+    std::vector<std::string> categories = {"videos", "documents", "images", "others"};
+    
+    for (const auto& category : categories) {
+        std::string path = storage_root_ + "/" + category;
+        if (!createDirectory(path)) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+bool FileManager::createDirectory(const std::string& path) {
     try {
-        return fs::remove(full_path);
+        fs::create_directories(path);
+        return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error deleting file: " << e.what() << std::endl;
+        std::cerr << "Failed to create directory " << path << ": " << e.what() << std::endl;
         return false;
     }
 }
 
-bool FileManager::file_exists(const std::string& file_path) {
-    if (!is_safe_path(file_path)) {
+bool FileManager::saveUploadedFile(const std::string& content, const std::string& filename, 
+                                 const std::string& category, std::string& saved_path) {
+    if (!isFileTypeAllowed(filename)) {
         return false;
     }
     
-    std::string full_path = base_path_ + "/" + file_path;
-    return fs::exists(full_path);
+    if (!isFileSizeValid(content.length())) {
+        return false;
+    }
+    
+    std::string safe_filename = generateSafeFilename(filename);
+    std::string category_dir = storage_root_ + "/" + category;
+    
+    if (!directoryExists(category_dir)) {
+        if (!createDirectory(category_dir)) {
+            return false;
+        }
+    }
+    
+    saved_path = generateUniqueFilename(category_dir, safe_filename);
+    
+    try {
+        std::ofstream file(saved_path, std::ios::binary);
+        if (!file.is_open()) {
+            return false;
+        }
+        
+        file.write(content.data(), content.length());
+        file.close();
+        
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to save file: " << e.what() << std::endl;
+        return false;
+    }
 }
 
-long FileManager::get_file_size(const std::string& file_path) {
-    if (!is_safe_path(file_path)) {
+std::vector<uint8_t> FileManager::readFile(const std::string& filepath) {
+    std::vector<uint8_t> data;
+    
+    if (!isPathSafe(filepath)) {
+        return data;
+    }
+    
+    try {
+        std::ifstream file(filepath, std::ios::binary);
+        if (!file.is_open()) {
+            return data;
+        }
+        
+        file.seekg(0, std::ios::end);
+        size_t size = file.tellg();
+        file.seekg(0, std::ios::beg);
+        
+        data.resize(size);
+        file.read(reinterpret_cast<char*>(data.data()), size);
+        file.close();
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to read file: " << e.what() << std::endl;
+        data.clear();
+    }
+    
+    return data;
+}
+
+long FileManager::getFileSize(const std::string& filepath) {
+    if (!isPathSafe(filepath)) {
         return -1;
     }
     
-    std::string full_path = base_path_ + "/" + file_path;
     try {
-        return fs::file_size(full_path);
+        if (fs::exists(filepath)) {
+            return fs::file_size(filepath);
+        }
     } catch (const std::exception& e) {
-        return -1;
+        std::cerr << "Failed to get file size: " << e.what() << std::endl;
     }
+    
+    return -1;
 }
 
-std::string FileManager::get_file_content(const std::string& file_path) {
-    if (!is_safe_path(file_path)) {
+std::string FileManager::generatePreview(const std::string& filepath, const std::string& file_type) {
+    if (!isPreviewSupported(file_type)) {
         return "";
     }
     
-    std::string full_path = base_path_ + "/" + file_path;
-    std::ifstream file(full_path, std::ios::binary);
-    if (!file.is_open()) {
-        return "";
+    if (isTextFile(file_type)) {
+        return readTextFile(filepath);
     }
     
-    std::ostringstream content;
-    content << file.rdbuf();
-    return content.str();
+    return "";
 }
 
-bool FileManager::is_safe_path(const std::string& path) {
-    // 检查路径遍历攻击
-    if (path.find("..") != std::string::npos ||
-        path.find("//") != std::string::npos ||
-        path.find("\\") != std::string::npos ||
-        path[0] == '/' ||
-        path[0] == '\\') {
+bool FileManager::isPreviewSupported(const std::string& file_type) {
+    return isTextFile(file_type) || isImageFile(file_type) || isVideoFile(file_type);
+}
+
+bool FileManager::isFileTypeAllowed(const std::string& filename) {
+    std::string ext = getFileExtension(filename);
+    ext = toLowerCase(ext);
+    
+    return std::find(allowed_types_.begin(), allowed_types_.end(), ext) != allowed_types_.end();
+}
+
+bool FileManager::isFileSizeValid(long file_size) {
+    return file_size <= max_file_size_;
+}
+
+bool FileManager::isPathSafe(const std::string& path) {
+    // 检查路径是否包含危险字符
+    if (path.find("..") != std::string::npos) {
         return false;
     }
     
-    // 检查是否在允许的基础路径下
-    std::string full_path = base_path_ + "/" + path;
+    if (path.find("//") != std::string::npos) {
+        return false;
+    }
+    
+    // 确保路径在存储根目录下
     try {
-        std::string canonical_base = fs::canonical(base_path_).string();
-        std::string canonical_path = fs::weakly_canonical(full_path).string();
+        fs::path abs_path = fs::absolute(path);
+        fs::path abs_root = fs::absolute(storage_root_);
         
-        return canonical_path.find(canonical_base) == 0;
+        std::string path_str = abs_path.string();
+        std::string root_str = abs_root.string();
+        
+        return path_str.substr(0, root_str.length()) == root_str;
     } catch (const std::exception& e) {
         return false;
     }
 }
 
-FileType FileManager::detect_file_type(const std::string& filename) {
-    std::string extension = get_file_extension(filename);
-    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+std::string FileManager::generateSafeFilename(const std::string& original_filename) {
+    std::string safe_name = original_filename;
     
-    if (extension == ".mp4" || extension == ".avi" || extension == ".mkv" || 
-        extension == ".mov" || extension == ".wmv" || extension == ".flv" || 
-        extension == ".webm") {
-        return FileType::VIDEO;
+    // 替换危险字符
+    std::string dangerous_chars = "\\/:*?\"<>|";
+    for (char c : dangerous_chars) {
+        std::replace(safe_name.begin(), safe_name.end(), c, '_');
     }
     
-    if (extension == ".jpg" || extension == ".jpeg" || extension == ".png" || 
-        extension == ".gif" || extension == ".bmp" || extension == ".svg" || 
-        extension == ".webp") {
-        return FileType::IMAGE;
-    }
-    
-    if (extension == ".txt" || extension == ".md" || extension == ".html" || 
-        extension == ".css" || extension == ".js" || extension == ".json" || 
-        extension == ".xml" || extension == ".pdf" || extension == ".doc" || 
-        extension == ".docx" || extension == ".xls" || extension == ".xlsx" || 
-        extension == ".ppt" || extension == ".pptx") {
-        return FileType::DOCUMENT;
-    }
-    
-    if (extension == ".zip" || extension == ".rar" || extension == ".7z" || 
-        extension == ".tar" || extension == ".gz" || extension == ".bz2") {
-        return FileType::ARCHIVE;
-    }
-    
-    return FileType::OTHER;
+    return safe_name;
 }
 
-std::string FileManager::get_file_category(FileType type) {
-    switch (type) {
-        case FileType::VIDEO: return "videos";
-        case FileType::IMAGE: return "images";
-        case FileType::DOCUMENT: return "documents";
-        case FileType::ARCHIVE: return "archives";
-        default: return "documents";
+std::string FileManager::determineCategory(const std::string& filename) {
+    std::string ext = getFileExtension(filename);
+    ext = toLowerCase(ext);
+    
+    if (ext == ".mp4" || ext == ".avi" || ext == ".mkv" || ext == ".mov" || ext == ".wmv") {
+        return "video";
+    } else if (ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".gif" || ext == ".bmp") {
+        return "image";
+    } else if (ext == ".txt" || ext == ".md" || ext == ".pdf" || ext == ".doc" || ext == ".docx") {
+        return "document";
+    } else {
+        return "other";
     }
 }
 
-bool FileManager::is_allowed_file_type(const std::string& filename) {
-    std::string extension = get_file_extension(filename);
-    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+std::string FileManager::getMimeType(const std::string& filename) {
+    std::string ext = getFileExtension(filename);
+    ext = toLowerCase(ext);
     
-    return std::find(allowed_extensions_.begin(), allowed_extensions_.end(), extension) 
-           != allowed_extensions_.end();
+    auto it = mime_types_.find(ext);
+    if (it != mime_types_.end()) {
+        return it->second;
+    }
+    
+    return "application/octet-stream";
 }
 
-std::string FileManager::get_mime_type(const std::string& filename) {
-    std::string extension = get_file_extension(filename);
-    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+bool FileManager::deleteFile(const std::string& filepath) {
+    if (!isPathSafe(filepath)) {
+        return false;
+    }
     
-    auto it = mime_types_.find(extension);
-    return (it != mime_types_.end()) ? it->second : "application/octet-stream";
+    try {
+        return fs::remove(filepath);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to delete file: " << e.what() << std::endl;
+        return false;
+    }
 }
 
-std::vector<std::string> FileManager::list_directory(const std::string& dir_path) {
+std::vector<std::string> FileManager::listFiles(const std::string& directory) {
     std::vector<std::string> files;
     
-    if (!is_safe_path(dir_path)) {
+    if (!isPathSafe(directory)) {
         return files;
     }
     
-    std::string full_path = base_path_ + "/" + dir_path;
-    
     try {
-        for (const auto& entry : fs::directory_iterator(full_path)) {
-            if (entry.is_regular_file()) {
-                files.push_back(entry.path().filename().string());
+        if (fs::exists(directory) && fs::is_directory(directory)) {
+            for (const auto& entry : fs::directory_iterator(directory)) {
+                if (entry.is_regular_file()) {
+                    files.push_back(entry.path().filename().string());
+                }
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "Error listing directory: " << e.what() << std::endl;
+        std::cerr << "Failed to list files: " << e.what() << std::endl;
     }
     
     return files;
 }
 
-bool FileManager::create_directory(const std::string& dir_path) {
-    try {
-        return fs::create_directories(dir_path);
-    } catch (const std::exception& e) {
-        std::cerr << "Error creating directory: " << e.what() << std::endl;
-        return false;
-    }
+void FileManager::initializeMimeTypes() {
+    mime_types_[".txt"] = "text/plain";
+    mime_types_[".md"] = "text/markdown";
+    mime_types_[".html"] = "text/html";
+    mime_types_[".css"] = "text/css";
+    mime_types_[".js"] = "application/javascript";
+    mime_types_[".json"] = "application/json";
+    mime_types_[".xml"] = "application/xml";
+    
+    // 图片类型
+    mime_types_[".jpg"] = "image/jpeg";
+    mime_types_[".jpeg"] = "image/jpeg";
+    mime_types_[".png"] = "image/png";
+    mime_types_[".gif"] = "image/gif";
+    mime_types_[".bmp"] = "image/bmp";
+    mime_types_[".svg"] = "image/svg+xml";
+    
+    // 视频类型
+    mime_types_[".mp4"] = "video/mp4";
+    mime_types_[".avi"] = "video/x-msvideo";
+    mime_types_[".mkv"] = "video/x-matroska";
+    mime_types_[".mov"] = "video/quicktime";
+    mime_types_[".wmv"] = "video/x-ms-wmv";
+    
+    // 音频类型
+    mime_types_[".mp3"] = "audio/mpeg";
+    mime_types_[".wav"] = "audio/wav";
+    mime_types_[".ogg"] = "audio/ogg";
+    
+    // 文档类型
+    mime_types_[".pdf"] = "application/pdf";
+    mime_types_[".doc"] = "application/msword";
+    mime_types_[".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    mime_types_[".xls"] = "application/vnd.ms-excel";
+    mime_types_[".xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    
+    // 压缩文件
+    mime_types_[".zip"] = "application/zip";
+    mime_types_[".rar"] = "application/x-rar-compressed";
+    mime_types_[".7z"] = "application/x-7z-compressed";
 }
 
-bool FileManager::validate_filename(const std::string& filename) {
-    if (filename.empty() || filename.length() > 255) {
-        return false;
-    }
-    
-    // 检查非法字符
-    const std::string illegal_chars = "<>:\"/\\|?*";
-    for (char c : filename) {
-        if (illegal_chars.find(c) != std::string::npos || c < 32) {
-            return false;
-        }
-    }
-    
-    // 检查是否为保留名称（Windows）
-    const std::vector<std::string> reserved_names = {
-        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5",
-        "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4",
-        "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+void FileManager::initializeAllowedTypes() {
+    allowed_types_ = {
+        ".txt", ".md", ".html", ".css", ".js", ".json", ".xml",
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg",
+        ".mp4", ".avi", ".mkv", ".mov", ".wmv",
+        ".mp3", ".wav", ".ogg",
+        ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+        ".zip", ".rar", ".7z"
     };
-    
-    std::string name_upper = filename;
-    std::transform(name_upper.begin(), name_upper.end(), name_upper.begin(), ::toupper);
-    
-    for (const auto& reserved : reserved_names) {
-        if (name_upper == reserved || name_upper.find(reserved + ".") == 0) {
-            return false;
-        }
-    }
-    
-    return is_allowed_file_type(filename);
 }
 
-std::string FileManager::sanitize_filename(const std::string& filename) {
-    std::string sanitized = filename;
-    
-    // 替换非法字符
-    const std::string illegal_chars = "<>:\"/\\|?*";
-    for (char& c : sanitized) {
-        if (illegal_chars.find(c) != std::string::npos || c < 32) {
-            c = '_';
-        }
-    }
-    
-    // 移除开头和结尾的点和空格
-    while (!sanitized.empty() && (sanitized.front() == '.' || sanitized.front() == ' ')) {
-        sanitized.erase(0, 1);
-    }
-    while (!sanitized.empty() && (sanitized.back() == '.' || sanitized.back() == ' ')) {
-        sanitized.pop_back();
-    }
-    
-    // 确保不为空
-    if (sanitized.empty()) {
-        sanitized = "unnamed_file";
-    }
-    
-    return sanitized;
-}
-
-bool FileManager::check_file_size_limit(long size, long max_size) {
-    return size <= max_size;
-}
-
-std::string FileManager::get_file_extension(const std::string& filename) {
+std::string FileManager::getFileExtension(const std::string& filename) {
     size_t dot_pos = filename.find_last_of('.');
-    if (dot_pos == std::string::npos || dot_pos == filename.length() - 1) {
+    if (dot_pos != std::string::npos) {
+        return filename.substr(dot_pos);
+    }
+    return "";
+}
+
+std::string FileManager::toLowerCase(const std::string& str) {
+    std::string result = str;
+    std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+    return result;
+}
+
+bool FileManager::directoryExists(const std::string& path) {
+    try {
+        return fs::exists(path) && fs::is_directory(path);
+    } catch (const std::exception& e) {
+        return false;
+    }
+}
+
+bool FileManager::fileExists(const std::string& path) {
+    try {
+        return fs::exists(path) && fs::is_regular_file(path);
+    } catch (const std::exception& e) {
+        return false;
+    }
+}
+
+std::string FileManager::generateUniqueFilename(const std::string& directory, const std::string& filename) {
+    std::string full_path = directory + "/" + filename;
+    
+    if (!fileExists(full_path)) {
+        return full_path;
+    }
+    
+    // 如果文件已存在，添加数字后缀
+    std::string name = filename;
+    std::string ext = getFileExtension(filename);
+    
+    if (!ext.empty()) {
+        name = filename.substr(0, filename.length() - ext.length());
+    }
+    
+    int counter = 1;
+    do {
+        std::string new_filename = name + "_" + std::to_string(counter) + ext;
+        full_path = directory + "/" + new_filename;
+        counter++;
+    } while (fileExists(full_path));
+    
+    return full_path;
+}
+
+std::string FileManager::readTextFile(const std::string& filepath) {
+    if (!isPathSafe(filepath)) {
         return "";
     }
-    return filename.substr(dot_pos);
+    
+    try {
+        std::ifstream file(filepath);
+        if (!file.is_open()) {
+            return "";
+        }
+        
+        std::string content((std::istreambuf_iterator<char>(file)),
+                           std::istreambuf_iterator<char>());
+        file.close();
+        
+        return content;
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to read text file: " << e.what() << std::endl;
+        return "";
+    }
 }
 
-std::string FileManager::generate_unique_filename(const std::string& directory, 
-                                                 const std::string& filename) {
-    std::string base_name = filename;
-    std::string extension = get_file_extension(filename);
-    
-    if (!extension.empty()) {
-        base_name = filename.substr(0, filename.length() - extension.length());
-    }
-    
-    std::string candidate = filename;
-    int counter = 1;
-    
-    while (fs::exists(directory + "/" + candidate)) {
-        candidate = base_name + "_" + std::to_string(counter) + extension;
-        counter++;
-    }
-    
-    return candidate;
+bool FileManager::isTextFile(const std::string& file_type) {
+    return file_type.find("text/") == 0 || 
+           file_type.find("application/json") == 0 ||
+           file_type.find("application/xml") == 0;
 }
 
-bool FileManager::extract_archive(const std::string& archive_path, const std::string& extract_to) {
-    if (!is_safe_path(archive_path) || !is_safe_path(extract_to)) {
-        return false;
-    }
-    
-    std::string full_archive_path = base_path_ + "/" + archive_path;
-    std::string full_extract_path = base_path_ + "/" + extract_to;
-    
-    std::string extension = get_file_extension(archive_path);
-    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-    
-    if (!create_directory(full_extract_path)) {
-        return false;
-    }
-    
-    std::string command;
-    if (extension == ".zip") {
-        command = "cd \"" + full_extract_path + "\" && unzip \"" + full_archive_path + "\"";
-    } else if (extension == ".tar") {
-        command = "cd \"" + full_extract_path + "\" && tar -xf \"" + full_archive_path + "\"";
-    } else if (extension == ".gz") {
-        command = "cd \"" + full_extract_path + "\" && tar -xzf \"" + full_archive_path + "\"";
-    } else if (extension == ".bz2") {
-        command = "cd \"" + full_extract_path + "\" && tar -xjf \"" + full_archive_path + "\"";
-    } else {
-        return false; // 不支持的压缩格式
-    }
-    
-    int result = system(command.c_str());
-    return result == 0;
+bool FileManager::isVideoFile(const std::string& file_type) {
+    return file_type.find("video/") == 0;
 }
 
-bool FileManager::generate_thumbnail(const std::string& image_path, const std::string& thumb_path) {
-    // 简单实现，实际项目中可以使用 ImageMagick 或其他库
-    if (!is_safe_path(image_path) || !is_safe_path(thumb_path)) {
-        return false;
-    }
-    
-    std::string full_image_path = base_path_ + "/" + image_path;
-    std::string full_thumb_path = base_path_ + "/" + thumb_path;
-    
-    // 使用 ImageMagick 生成缩略图
-    std::string command = "convert \"" + full_image_path + "\" -resize 200x200> \"" + full_thumb_path + "\"";
-    int result = system(command.c_str());
-    
-    return result == 0;
+bool FileManager::isImageFile(const std::string& file_type) {
+    return file_type.find("image/") == 0;
 } 

@@ -1,259 +1,311 @@
 #include "json_helper.h"
-#include <iostream>
-#include <regex>
+#include <sstream>
+#include <algorithm>
 
-// JsonBuilder 实现
-JsonBuilder::JsonBuilder() : first_item_(true) {
-    json_ << "{";
+std::string JsonHelper::objectToJson(const JsonObject& obj) {
+    std::stringstream ss;
+    ss << "{";
+    
+    bool first = true;
+    for (const auto& pair : obj) {
+        if (!first) ss << ",";
+        ss << "\"" << escapeString(pair.first) << "\":" << valueToJson(pair.second);
+        first = false;
+    }
+    
+    ss << "}";
+    return ss.str();
 }
 
-void JsonBuilder::add(const std::string& key, const std::string& value) {
-    add_comma();
-    json_ << "\"" << escape_string(key) << "\":\"" << escape_string(value) << "\"";
+std::string JsonHelper::arrayToJson(const JsonArray& arr) {
+    std::stringstream ss;
+    ss << "[";
+    
+    for (size_t i = 0; i < arr.size(); ++i) {
+        if (i > 0) ss << ",";
+        ss << valueToJson(arr[i]);
+    }
+    
+    ss << "]";
+    return ss.str();
 }
 
-void JsonBuilder::add(const std::string& key, int value) {
-    add_comma();
-    json_ << "\"" << escape_string(key) << "\":" << value;
-}
-
-void JsonBuilder::add(const std::string& key, long value) {
-    add_comma();
-    json_ << "\"" << escape_string(key) << "\":" << value;
-}
-
-void JsonBuilder::add(const std::string& key, double value) {
-    add_comma();
-    json_ << "\"" << escape_string(key) << "\":" << value;
-}
-
-void JsonBuilder::add(const std::string& key, bool value) {
-    add_comma();
-    json_ << "\"" << escape_string(key) << "\":" << (value ? "true" : "false");
-}
-
-void JsonBuilder::add_array(const std::string& key) {
-    add_comma();
-    json_ << "\"" << escape_string(key) << "\":[";
-    in_array_.push_back(true);
-    array_first_.push_back(true);
-}
-
-void JsonBuilder::add_to_array(const std::string& value) {
-    if (!in_array_.empty() && in_array_.back()) {
-        if (!array_first_.back()) {
-            json_ << ",";
+std::string JsonHelper::valueToJson(const JsonValue& value) {
+    return std::visit([](const auto& v) -> std::string {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, std::string>) {
+            return "\"" + escapeString(v) + "\"";
+        } else if constexpr (std::is_same_v<T, int>) {
+            return std::to_string(v);
+        } else if constexpr (std::is_same_v<T, double>) {
+            return std::to_string(v);
+        } else if constexpr (std::is_same_v<T, bool>) {
+            return v ? "true" : "false";
+        } else if constexpr (std::is_same_v<T, std::nullptr_t>) {
+            return "null";
         }
-        json_ << "\"" << escape_string(value) << "\"";
-        array_first_.back() = false;
-    }
+        return "null";
+    }, value);
 }
 
-void JsonBuilder::add_to_array(int value) {
-    if (!in_array_.empty() && in_array_.back()) {
-        if (!array_first_.back()) {
-            json_ << ",";
+std::string JsonHelper::createSuccessResponse(const std::string& message, const JsonObject& data) {
+    JsonObject response;
+    response["success"] = true;
+    response["message"] = message;
+    
+    if (!data.empty()) {
+        response["data"] = objectToJson(data);
+    }
+    
+    return objectToJson(response);
+}
+
+std::string JsonHelper::createErrorResponse(const std::string& error, int code) {
+    JsonObject response;
+    response["success"] = false;
+    response["error"] = error;
+    response["code"] = code;
+    
+    return objectToJson(response);
+}
+
+std::string JsonHelper::createFileListResponse(const std::vector<std::map<std::string, std::string>>& files) {
+    std::stringstream ss;
+    ss << "{\"success\":true,\"data\":[";
+    
+    for (size_t i = 0; i < files.size(); ++i) {
+        if (i > 0) ss << ",";
+        ss << "{";
+        
+        bool first = true;
+        for (const auto& pair : files[i]) {
+            if (!first) ss << ",";
+            ss << "\"" << escapeString(pair.first) << "\":\"" << escapeString(pair.second) << "\"";
+            first = false;
         }
-        json_ << value;
-        array_first_.back() = false;
-    }
-}
-
-void JsonBuilder::add_object(const std::string& key) {
-    add_comma();
-    json_ << "\"" << escape_string(key) << "\":{";
-    first_item_ = true;
-}
-
-void JsonBuilder::end_object() {
-    json_ << "}";
-    first_item_ = false;
-}
-
-std::string JsonBuilder::build() {
-    // 关闭所有打开的数组
-    while (!in_array_.empty()) {
-        json_ << "]";
-        in_array_.pop_back();
-        array_first_.pop_back();
+        
+        ss << "}";
     }
     
-    json_ << "}";
-    return json_.str();
+    ss << "]}";
+    return ss.str();
 }
 
-void JsonBuilder::add_comma() {
-    if (!first_item_) {
-        json_ << ",";
-    }
-    first_item_ = false;
+std::string JsonHelper::createUserResponse(const std::string& username, const std::string& role, int id) {
+    JsonObject user;
+    user["id"] = id;
+    user["username"] = username;
+    user["role"] = role;
+    
+    JsonObject response;
+    response["success"] = true;
+    response["data"] = objectToJson(user);
+    
+    return objectToJson(response);
 }
 
-std::string JsonBuilder::escape_string(const std::string& str) {
-    std::string escaped = str;
+std::string JsonHelper::createSystemStatusResponse(const std::map<std::string, std::string>& status) {
+    std::stringstream ss;
+    ss << "{\"success\":true,\"data\":{";
     
-    // 替换特殊字符
-    size_t pos = 0;
-    while ((pos = escaped.find("\\", pos)) != std::string::npos) {
-        escaped.replace(pos, 1, "\\\\");
-        pos += 2;
+    bool first = true;
+    for (const auto& pair : status) {
+        if (!first) ss << ",";
+        ss << "\"" << escapeString(pair.first) << "\":\"" << escapeString(pair.second) << "\"";
+        first = false;
     }
     
-    pos = 0;
-    while ((pos = escaped.find("\"", pos)) != std::string::npos) {
-        escaped.replace(pos, 1, "\\\"");
-        pos += 2;
-    }
-    
-    pos = 0;
-    while ((pos = escaped.find("\n", pos)) != std::string::npos) {
-        escaped.replace(pos, 1, "\\n");
-        pos += 2;
-    }
-    
-    pos = 0;
-    while ((pos = escaped.find("\r", pos)) != std::string::npos) {
-        escaped.replace(pos, 1, "\\r");
-        pos += 2;
-    }
-    
-    pos = 0;
-    while ((pos = escaped.find("\t", pos)) != std::string::npos) {
-        escaped.replace(pos, 1, "\\t");
-        pos += 2;
-    }
-    
-    return escaped;
+    ss << "}}";
+    return ss.str();
 }
 
-// JsonParser 实现
-JsonParser::JsonParser(const std::string& json) {
-    parse(json);
-}
-
-bool JsonParser::has_key(const std::string& key) {
-    return data_.find(key) != data_.end();
-}
-
-std::string JsonParser::get_string(const std::string& key, const std::string& default_value) {
-    auto it = data_.find(key);
-    if (it != data_.end()) {
-        return unescape_string(it->second);
+std::string JsonHelper::getString(const JsonValue& value, const std::string& default_val) {
+    if (const auto* str = std::get_if<std::string>(&value)) {
+        return *str;
     }
-    return default_value;
+    return default_val;
 }
 
-int JsonParser::get_int(const std::string& key, int default_value) {
-    auto it = data_.find(key);
-    if (it != data_.end()) {
-        try {
-            return std::stoi(it->second);
-        } catch (const std::exception&) {
-            return default_value;
+int JsonHelper::getInt(const JsonValue& value, int default_val) {
+    if (const auto* i = std::get_if<int>(&value)) {
+        return *i;
+    }
+    return default_val;
+}
+
+double JsonHelper::getDouble(const JsonValue& value, double default_val) {
+    if (const auto* d = std::get_if<double>(&value)) {
+        return *d;
+    }
+    return default_val;
+}
+
+bool JsonHelper::getBool(const JsonValue& value, bool default_val) {
+    if (const auto* b = std::get_if<bool>(&value)) {
+        return *b;
+    }
+    return default_val;
+}
+
+JsonHelper::JsonObject JsonHelper::parseObject(const std::string& json) {
+    JsonObject obj;
+    
+    // 简单的JSON解析实现
+    size_t pos = json.find('{');
+    if (pos == std::string::npos) return obj;
+    
+    pos++;
+    skipWhitespace(json, pos);
+    
+    while (pos < json.length() && json[pos] != '}') {
+        skipWhitespace(json, pos);
+        if (pos >= json.length()) break;
+        
+        // 解析键
+        if (json[pos] != '"') break;
+        std::string key = parseString(json, pos);
+        
+        skipWhitespace(json, pos);
+        if (pos >= json.length() || json[pos] != ':') break;
+        pos++;
+        
+        skipWhitespace(json, pos);
+        
+        // 解析值
+        JsonValue value;
+        if (json[pos] == '"') {
+            value = parseString(json, pos);
+        } else if (isNumberStart(json[pos])) {
+            value = parseNumber(json, pos);
+        } else if (isAlpha(json[pos])) {
+            value = parseLiteral(json, pos);
+        }
+        
+        obj[key] = value;
+        
+        skipWhitespace(json, pos);
+        if (pos < json.length() && json[pos] == ',') {
+            pos++;
         }
     }
-    return default_value;
+    
+    return obj;
 }
 
-double JsonParser::get_double(const std::string& key, double default_value) {
-    auto it = data_.find(key);
-    if (it != data_.end()) {
-        try {
-            return std::stod(it->second);
-        } catch (const std::exception&) {
-            return default_value;
+bool JsonHelper::hasRequiredFields(const JsonObject& obj, const std::vector<std::string>& fields) {
+    for (const auto& field : fields) {
+        if (obj.find(field) == obj.end()) {
+            return false;
         }
     }
-    return default_value;
+    return true;
 }
 
-bool JsonParser::get_bool(const std::string& key, bool default_value) {
-    auto it = data_.find(key);
-    if (it != data_.end()) {
-        std::string value = trim(it->second);
-        return value == "true";
-    }
-    return default_value;
-}
-
-void JsonParser::parse(const std::string& json) {
-    // 简单的键值对解析，使用普通字符串而不是原始字符串字面量来避免问题
-    std::regex pair_regex("\"([^\"]+)\"\\s*:\\s*\"([^\"]*)\"");
-    std::regex number_regex("\"([^\"]+)\"\\s*:\\s*([0-9.-]+)");
-    std::regex bool_regex("\"([^\"]+)\"\\s*:\\s*(true|false)");
-    
-    std::smatch match;
-    std::string::const_iterator search_start = json.cbegin();
-    
-    // 匹配字符串值
-    while (std::regex_search(search_start, json.cend(), match, pair_regex)) {
-        data_[match[1].str()] = match[2].str();
-        search_start = match.suffix().first;
+std::string JsonHelper::parseString(const std::string& str, size_t& pos) {
+    if (pos >= str.length() || str[pos] != '"') {
+        return "";
     }
     
-    // 重置搜索位置
-    search_start = json.cbegin();
+    pos++; // 跳过开始的引号
+    std::string result;
     
-    // 匹配数字值
-    while (std::regex_search(search_start, json.cend(), match, number_regex)) {
-        if (data_.find(match[1].str()) == data_.end()) {
-            data_[match[1].str()] = match[2].str();
+    while (pos < str.length() && str[pos] != '"') {
+        if (str[pos] == '\\' && pos + 1 < str.length()) {
+            pos++;
+            switch (str[pos]) {
+                case 'n': result += '\n'; break;
+                case 't': result += '\t'; break;
+                case 'r': result += '\r'; break;
+                case '\\': result += '\\'; break;
+                case '"': result += '"'; break;
+                default: result += str[pos]; break;
+            }
+        } else {
+            result += str[pos];
         }
-        search_start = match.suffix().first;
+        pos++;
     }
     
-    // 重置搜索位置
-    search_start = json.cbegin();
+    if (pos < str.length()) pos++; // 跳过结束的引号
+    return result;
+}
+
+JsonValue JsonHelper::parseNumber(const std::string& str, size_t& pos) {
+    size_t start = pos;
+    bool isFloat = false;
     
-    // 匹配布尔值
-    while (std::regex_search(search_start, json.cend(), match, bool_regex)) {
-        if (data_.find(match[1].str()) == data_.end()) {
-            data_[match[1].str()] = match[2].str();
+    if (str[pos] == '-') pos++;
+    
+    while (pos < str.length() && isDigit(str[pos])) {
+        pos++;
+    }
+    
+    if (pos < str.length() && str[pos] == '.') {
+        isFloat = true;
+        pos++;
+        while (pos < str.length() && isDigit(str[pos])) {
+            pos++;
         }
-        search_start = match.suffix().first;
+    }
+    
+    std::string numStr = str.substr(start, pos - start);
+    
+    if (isFloat) {
+        return std::stod(numStr);
+    } else {
+        return std::stoi(numStr);
     }
 }
 
-std::string JsonParser::trim(const std::string& str) {
-    size_t start = str.find_first_not_of(" \t\n\r");
-    if (start == std::string::npos) return "";
+JsonValue JsonHelper::parseLiteral(const std::string& str, size_t& pos) {
+    size_t start = pos;
     
-    size_t end = str.find_last_not_of(" \t\n\r");
-    return str.substr(start, end - start + 1);
+    while (pos < str.length() && isAlpha(str[pos])) {
+        pos++;
+    }
+    
+    std::string literal = str.substr(start, pos - start);
+    
+    if (literal == "true") return true;
+    if (literal == "false") return false;
+    if (literal == "null") return nullptr;
+    
+    return std::string(literal);
 }
 
-std::string JsonParser::unescape_string(const std::string& str) {
-    std::string unescaped = str;
-    
-    size_t pos = 0;
-    while ((pos = unescaped.find("\\\"", pos)) != std::string::npos) {
-        unescaped.replace(pos, 2, "\"");
-        pos += 1;
+void JsonHelper::skipWhitespace(const std::string& str, size_t& pos) {
+    while (pos < str.length() && isWhitespace(str[pos])) {
+        pos++;
     }
-    
-    pos = 0;
-    while ((pos = unescaped.find("\\\\", pos)) != std::string::npos) {
-        unescaped.replace(pos, 2, "\\");
-        pos += 1;
+}
+
+std::string JsonHelper::escapeString(const std::string& str) {
+    std::string result;
+    for (char c : str) {
+        switch (c) {
+            case '"': result += "\\\""; break;
+            case '\\': result += "\\\\"; break;
+            case '\n': result += "\\n"; break;
+            case '\t': result += "\\t"; break;
+            case '\r': result += "\\r"; break;
+            default: result += c; break;
+        }
     }
-    
-    pos = 0;
-    while ((pos = unescaped.find("\\n", pos)) != std::string::npos) {
-        unescaped.replace(pos, 2, "\n");
-        pos += 1;
-    }
-    
-    pos = 0;
-    while ((pos = unescaped.find("\\r", pos)) != std::string::npos) {
-        unescaped.replace(pos, 2, "\r");
-        pos += 1;
-    }
-    
-    pos = 0;
-    while ((pos = unescaped.find("\\t", pos)) != std::string::npos) {
-        unescaped.replace(pos, 2, "\t");
-        pos += 1;
-    }
-    
-    return unescaped;
+    return result;
+}
+
+bool JsonHelper::isNumberStart(char c) {
+    return isDigit(c) || c == '-';
+}
+
+bool JsonHelper::isAlpha(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+bool JsonHelper::isDigit(char c) {
+    return c >= '0' && c <= '9';
+}
+
+bool JsonHelper::isWhitespace(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 } 

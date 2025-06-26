@@ -71,6 +71,9 @@ std::string handle_get_files(const std::string& body, const std::map<std::string
 std::string handle_upload(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_system_status(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_processes(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_get_users(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_delete_user(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_delete_file(const std::string& body, const std::map<std::string, std::string>& params);
 
 // 包装函数：将旧的路由处理器适配为新的签名
 void handle_login_route(const HttpRequest& request, HttpResponse& response) {
@@ -380,6 +383,81 @@ void handle_download_route(const HttpRequest& request, HttpResponse& response) {
     delete file;
 }
 
+// 管理员功能 - 获取用户列表
+std::string handle_get_users(const std::string& body, const std::map<std::string, std::string>& params) {
+    // 简化的权限检查
+    std::vector<User> users = g_database->getAllUsers();
+    std::string users_json = JsonHelper::serialize_users(users);
+    return JsonHelper::data_response(users_json, "Users retrieved successfully");
+}
+
+// 管理员功能 - 删除用户
+std::string handle_delete_user(const std::string& body, const std::map<std::string, std::string>& params) {
+    auto it = params.find("id");
+    if (it == params.end()) {
+        return JsonHelper::error_response("Missing user ID");
+    }
+    
+    int user_id = std::stoi(it->second);
+    if (user_id == 1) {  // 保护管理员账户
+        return JsonHelper::error_response("Cannot delete admin user");
+    }
+    
+    if (g_database->deleteUser(user_id)) {
+        return JsonHelper::success_response("User deleted successfully");
+    } else {
+        return JsonHelper::error_response("Failed to delete user");
+    }
+}
+
+// 管理员功能 - 删除文件
+std::string handle_delete_file(const std::string& body, const std::map<std::string, std::string>& params) {
+    auto it = params.find("id");
+    if (it == params.end()) {
+        return JsonHelper::error_response("Missing file ID");
+    }
+    
+    int file_id = std::stoi(it->second);
+    FileInfo* file = g_database->getFileById(file_id);
+    
+    if (!file) {
+        return JsonHelper::error_response("File not found");
+    }
+    
+    // 删除物理文件
+    if (std::remove(file->filepath.c_str()) != 0) {
+        // 文件删除失败，但继续删除数据库记录
+    }
+    
+    bool success = g_database->deleteFile(file_id);
+    delete file;
+    
+    if (success) {
+        return JsonHelper::success_response("File deleted successfully");
+    } else {
+        return JsonHelper::error_response("Failed to delete file from database");
+    }
+}
+
+// 包装函数
+void handle_get_users_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_get_users(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_delete_user_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_delete_user(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_delete_file_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_delete_file(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
 int main() {
     std::cout << "启动 g00j小站 文件共享系统..." << std::endl;
     
@@ -420,6 +498,11 @@ int main() {
     g_server->add_route("/api/download", handle_download_route);
     g_server->add_route("/api/system/status", handle_system_status_route);
     g_server->add_route("/api/system/processes", handle_processes_route);
+    
+    // 管理员API
+    g_server->add_route("/api/admin/users", handle_get_users_route);
+    g_server->add_post_route("/api/admin/delete-user", handle_delete_user_route);
+    g_server->add_post_route("/api/admin/delete-file", handle_delete_file_route);
     
     std::cout << "服务器启动成功，访问地址: http://localhost:8080" << std::endl;
     std::cout << "默认管理员账户: admin / admin123" << std::endl;

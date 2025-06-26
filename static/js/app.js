@@ -228,11 +228,38 @@ createApp({
         async uploadSelectedFiles() {
             if (this.uploadFiles.length === 0) return;
             
-            this.showMessage('文件上传功能正在开发中', 'info');
+            this.uploading = true;
             
-            // 清空文件列表
-            this.uploadFiles = [];
-            this.showUploadModal = false;
+            try {
+                for (const file of this.uploadFiles) {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('category', 'documents');  // 默认分类
+                    
+                    const response = await axios.post('/api/upload', formData, {
+                        headers: {
+                            'Content-Type': 'multipart/form-data'
+                        }
+                    });
+                    
+                    if (response.data.success) {
+                        this.showMessage(`${file.name} 上传成功！`, 'success');
+                    } else {
+                        this.showMessage(`${file.name} 上传失败: ${response.data.message}`, 'error');
+                    }
+                }
+                
+                // 刷新文件列表
+                await this.loadFiles();
+                
+            } catch (error) {
+                this.showMessage('上传失败，请重试', 'error');
+                console.error('Upload error:', error);
+            } finally {
+                this.uploading = false;
+                this.uploadFiles = [];
+                this.showUploadModal = false;
+            }
         },
         
         // 文件预览
@@ -259,7 +286,7 @@ createApp({
             }
             
             const link = document.createElement('a');
-            link.href = `/api/download/${file.filename}`;
+            link.href = `/api/download?id=${file.id}`;
             link.download = file.filename;
             document.body.appendChild(link);
             link.click();

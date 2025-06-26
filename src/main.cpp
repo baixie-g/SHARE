@@ -148,6 +148,29 @@ void setup_routes() {
         resp.set_content_type("application/json");
     });
     
+    // API: 获取当前用户信息
+    server->get("/api/user", [](const HttpRequest& req, HttpResponse& resp) {
+        auto user = get_current_user(req);
+        if (user) {
+            JsonBuilder response;
+            response.add("success", true);
+            response.add_object("user");
+            response.add("id", user->id);
+            response.add("username", user->username);
+            response.add("role", user->role);
+            response.end_object();
+            resp.body = response.build();
+        } else {
+            resp.status_code = 401;
+            JsonBuilder error;
+            error.add("success", false);
+            error.add("error", "Not authenticated");
+            resp.body = error.build();
+        }
+        
+        resp.set_content_type("application/json");
+    });
+
     // API: 用户注册
     server->post("/api/register", [](const HttpRequest& req, HttpResponse& resp) {
         JsonParser parser(req.body);
@@ -272,6 +295,72 @@ void setup_routes() {
         
         resp.set_content_type("application/json");
         resp.body = json.str();
+    });
+
+    // 页面路由
+    server->get("/files", [](const HttpRequest& req, HttpResponse& resp) {
+        // 返回文件浏览页面（可以使用相同的index.html）
+        std::ifstream html_file("../static/index.html");
+        if (html_file.is_open()) {
+            std::ostringstream content;
+            content << html_file.rdbuf();
+            resp.body = content.str();
+        } else {
+            resp.body = "<html><body><h1>Files Page</h1></body></html>";
+        }
+        resp.set_content_type("text/html; charset=utf-8");
+    });
+
+    server->get("/upload", [](const HttpRequest& req, HttpResponse& resp) {
+        // 返回上传页面
+        std::ifstream html_file("../static/index.html");
+        if (html_file.is_open()) {
+            std::ostringstream content;
+            content << html_file.rdbuf();
+            resp.body = content.str();
+        } else {
+            resp.body = "<html><body><h1>Upload Page</h1></body></html>";
+        }
+        resp.set_content_type("text/html; charset=utf-8");
+    });
+
+    server->get("/admin", [](const HttpRequest& req, HttpResponse& resp) {
+        // 返回管理页面
+        std::ifstream html_file("../static/index.html");
+        if (html_file.is_open()) {
+            std::ostringstream content;
+            content << html_file.rdbuf();
+            resp.body = content.str();
+        } else {
+            resp.body = "<html><body><h1>Admin Page</h1></body></html>";
+        }
+        resp.set_content_type("text/html; charset=utf-8");
+    });
+
+    server->get("/profile", [](const HttpRequest& req, HttpResponse& resp) {
+        // 返回个人资料页面
+        std::ifstream html_file("../static/index.html");
+        if (html_file.is_open()) {
+            std::ostringstream content;
+            content << html_file.rdbuf();
+            resp.body = content.str();
+        } else {
+            resp.body = "<html><body><h1>Profile Page</h1></body></html>";
+        }
+        resp.set_content_type("text/html; charset=utf-8");
+    });
+
+    server->get("/my-files", [](const HttpRequest& req, HttpResponse& resp) {
+        // 返回我的文件页面
+        std::ifstream html_file("../static/index.html");
+        if (html_file.is_open()) {
+            std::ostringstream content;
+            content << html_file.rdbuf();
+            resp.body = content.str();
+        } else {
+            resp.body = "<html><body><h1>My Files Page</h1></body></html>";
+        }
+        resp.set_content_type("text/html; charset=utf-8");
     });
 }
 

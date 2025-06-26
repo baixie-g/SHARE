@@ -226,10 +226,11 @@ std::string JsonHelper::escape_json_string(const std::string& str) {
             case '\r': result += "\\r"; break;
             case '\t': result += "\\t"; break;
             default:
-                if (c < 0x20) {
-                    result += "\\u";
-                    result += "0000";
-                    // 简化的unicode转义
+                if (c < 0x20 || c == 0) {
+                    // 正确的unicode转义实现
+                    std::ostringstream oss;
+                    oss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << (unsigned char)c;
+                    result += oss.str();
                 } else {
                     result += c;
                 }

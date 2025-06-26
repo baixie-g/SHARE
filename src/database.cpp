@@ -576,8 +576,17 @@ User Database::get_user(const std::string& username) {
 }
 
 bool Database::create_session(const std::string& session_id, const std::string& username, const std::string& role) {
-    // 简化实现，存储会话信息
-    const char* sql = "INSERT INTO sessions (session_id, username, role, created_at, expires_at) VALUES (?, ?, ?, datetime('now'), datetime('now', '+24 hours'))";
+    // 首先获取用户ID
+    User* user = getUserByUsername(username);
+    if (!user) {
+        return false;
+    }
+    
+    int user_id = user->id;
+    delete user;
+    
+    // 使用正确的表结构插入会话
+    const char* sql = "INSERT INTO sessions (session_id, user_id, expires_at) VALUES (?, ?, datetime('now', '+24 hours'))";
     sqlite3_stmt* stmt;
     
     int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
@@ -586,8 +595,7 @@ bool Database::create_session(const std::string& session_id, const std::string& 
     }
     
     sqlite3_bind_text(stmt, 1, session_id.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, username.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 3, role.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, user_id);
     
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);

@@ -120,22 +120,26 @@ std::string handle_login(const std::string& body, const std::map<std::string, st
         std::string password = form_data["password"];
         
         if (username.empty() || password.empty()) {
-            return JsonHelper::error_response("用户名和密码不能为空");
+            return JsonHelper::error_response("Username and password are required");
         }
         
-        if (g_database->verify_password(username, password)) {
+        // 调试：检查密码验证
+        bool password_valid = g_database->verify_password(username, password);
+        if (password_valid) {
             User user = g_database->get_user(username);
             std::string session_id = generate_session_id();
             
             if (g_database->create_session(session_id, username, user.role)) {
-                return JsonHelper::success_response("登录成功");
+                return JsonHelper::success_response("Login successful");
+            } else {
+                return JsonHelper::error_response("Session creation failed");
             }
         }
         
-        return JsonHelper::error_response("用户名或密码错误");
+        return JsonHelper::error_response("Invalid username or password");
         
     } catch (const std::exception& e) {
-        return JsonHelper::error_response("服务器内部错误");
+        return JsonHelper::error_response("Internal server error");
     }
 }
 

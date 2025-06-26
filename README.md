@@ -1,162 +1,188 @@
 # g00j小站 文件共享系统
 
-一个基于C++后端和Vue3前端的轻量级文件共享系统，提供文件上传、下载、在线预览、用户管理和系统监控等功能。
+🏠 一个轻量级的文件共享平台，基于 C++ 后端和 Vue3 前端开发。
 
-## 🚀 项目特性
+## ✨ 主要特性
 
-### 核心功能
-- **文件管理**: 支持多种文件类型的上传、下载、在线预览
-- **用户系统**: 游客、注册用户、管理员三级权限管理
-- **在线预览**: 支持视频播放、文档阅读、图片查看
-- **系统监控**: 实时监控CPU、内存、磁盘、进程状态
-- **安全保护**: 文件类型检查、路径安全验证、权限控制
+### 🎬 多媒体支持
+- **视频播放**: 支持 MP4, AVI, MKV, MOV, WMV, FLV 格式在线播放
+- **图片预览**: 支持 JPG, PNG, GIF, BMP, WEBP 格式快速预览
+- **文档阅读**: 支持 TXT, MD, PDF, DOC, DOCX 等文档在线阅读
 
-### 技术栈
-- **后端**: C++17, SQLite3, HTTP服务器
-- **前端**: Vue3, 现代化响应式UI
-- **数据库**: SQLite3
-- **构建工具**: CMake
+### 👥 用户权限管理
+- **游客权限**: 浏览和预览文件，下载需要登录
+- **注册用户**: 文件上传下载、个人文件管理
+- **管理员权限**: 系统监控、进程管理、全局文件管理
 
-## 📁 项目结构
+### 📊 系统监控
+- **实时监控**: CPU、内存、磁盘使用率
+- **进程管理**: 查看系统进程列表，支持进程终止
+- **系统信息**: 系统负载、运行时间等详细信息
 
-```
-g00j_file_share/
-├── include/           # 头文件
-│   ├── server.h      # HTTP服务器
-│   ├── database.h    # 数据库管理
-│   ├── file_manager.h # 文件管理
-│   ├── json_helper.h # JSON处理
-│   └── system_monitor.h # 系统监控
-├── src/              # 源代码文件
-│   ├── main.cpp      # 主程序入口
-│   ├── server.cpp    # HTTP服务器实现
-│   ├── database.cpp  # 数据库操作实现
-│   ├── file_manager.cpp # 文件管理实现
-│   ├── json_helper.cpp # JSON处理实现
-│   └── system_monitor.cpp # 系统监控实现
-├── static/           # 前端静态文件
-│   ├── index.html    # 主页面
-│   ├── css/          # 样式文件
-│   └── js/           # JavaScript文件
-├── shared/           # 共享文件存储
-│   ├── videos/       # 视频文件
-│   ├── documents/    # 文档文件
-│   ├── images/       # 图片文件
-│   └── others/       # 其他文件
-├── bin/              # 可执行文件
-├── build/            # CMake构建目录
-├── CMakeLists.txt    # CMake配置
-├── build.sh          # 构建脚本
-├── start.sh          # 启动脚本
-└── README.md         # 项目说明
-```
+### 🔒 安全特性
+- **用户认证**: 基于 Session 的用户认证系统
+- **文件安全**: 文件类型白名单、路径安全检查
+- **权限控制**: 三级权限分离，管理员权限保护
+- **密码加密**: SHA256 哈希加密存储
 
-## 🛠️ 快速开始
+## 🛠️ 技术栈
 
-### 环境要求
-- Linux 系统 (Ubuntu 18.04+, CentOS 7+)
-- GCC 7+ (支持C++17)
-- CMake 3.10+
+- **后端**: C++17, SQLite3, OpenSSL
+- **前端**: Vue3, Axios, CSS3
+- **构建**: CMake, Make
+- **部署**: Linux (Ubuntu/Debian)
+
+## 📋 系统要求
+
+- Linux 操作系统 (Ubuntu 18.04+ 或 Debian 9+)
+- CMake 3.16+
+- GCC 8.0+ (支持 C++17)
 - SQLite3 开发库
-- pkg-config
+- OpenSSL 开发库
 
-### 安装依赖
+## 🚀 快速开始
 
-**Ubuntu/Debian:**
+### 1. 安装依赖
+
 ```bash
-sudo apt-get update
-sudo apt-get install build-essential cmake libsqlite3-dev pkg-config
+# Ubuntu/Debian
+make install
+
+# 或手动安装
+sudo apt update
+sudo apt install cmake g++ pkg-config libsqlite3-dev libssl-dev
 ```
 
-**CentOS/RHEL:**
-```bash
-sudo yum groupinstall "Development Tools"
-sudo yum install cmake sqlite-devel pkgconfig
-```
+### 2. 构建项目
 
-### 构建项目
 ```bash
-# 克隆或下载项目到本地
-cd g00j_file_share
-
-# 构建项目
+make build
+# 或
 ./build.sh
 ```
 
-### 启动服务
+### 3. 启动服务器
+
 ```bash
-# 启动服务器
+make start
+# 或
 ./start.sh
 ```
 
-### 访问系统
-打开浏览器访问: http://localhost:8080
+### 4. 访问系统
 
-## 👥 默认账户
+打开浏览器访问 [http://localhost:8080](http://localhost:8080)
 
-- **管理员**: admin / admin123
-- **普通用户**: 需要注册
+**默认管理员账户**: `admin` / `admin123`
 
-## 📝 API 文档
+## 📁 目录结构
+
+```
+g00j小站/
+├── src/                    # C++ 源代码
+│   ├── main.cpp           # 主程序入口
+│   ├── server.cpp         # HTTP 服务器
+│   ├── database.cpp       # 数据库管理
+│   ├── file_manager.cpp   # 文件管理
+│   ├── json_helper.cpp    # JSON 处理
+│   └── system_monitor.cpp # 系统监控
+├── include/               # 头文件
+├── static/                # 前端静态文件
+│   ├── index.html        # 主页面
+│   ├── css/style.css     # 样式文件
+│   └── js/app.js         # Vue3 应用
+├── shared/                # 共享文件存储
+│   ├── videos/           # 视频文件
+│   ├── images/           # 图片文件
+│   ├── documents/        # 文档文件
+│   └── others/           # 其他文件
+├── build.sh              # 构建脚本
+├── start.sh              # 启动脚本
+├── CMakeLists.txt        # CMake 配置
+├── Makefile              # Make 配置
+└── README.md             # 项目说明
+```
+
+## 🎯 功能说明
+
+### 文件管理
+- 支持多文件上传，拖拽上传
+- 自动文件分类（视频、图片、文档、其他）
+- 文件安全检查和大小限制（默认 50MB）
+- 分页显示，支持按分类筛选
+
+### 用户系统
+- 用户注册和登录
+- 基于 Cookie 的会话管理
+- 三级权限控制（游客、用户、管理员）
+
+### 系统监控
+- 实时 CPU、内存、磁盘使用率
+- 系统进程列表和管理
+- 系统负载和运行时间监控
+
+## 🔧 配置选项
+
+### 服务器配置
+- **端口**: 8080 (可在源码中修改)
+- **最大文件大小**: 50MB
+- **数据库文件**: `bin/g00j_share.db`
+
+### 支持的文件类型
+- **视频**: mp4, avi, mkv, mov, wmv, flv
+- **图片**: jpg, jpeg, png, gif, bmp, webp
+- **文档**: txt, md, pdf, doc, docx, xls, xlsx
+- **压缩**: zip, rar, 7z
+- **音频**: mp3, wav, flac
+
+## 📚 API 文档
 
 ### 用户认证
 - `POST /api/login` - 用户登录
-- `POST /api/register` - 用户注册  
+- `POST /api/register` - 用户注册
 - `POST /api/logout` - 用户登出
 
 ### 文件管理
 - `GET /api/files` - 获取文件列表
-- `POST /api/upload` - 上传文件
-- `GET /api/download/{id}` - 下载文件
-- `GET /api/preview/{id}` - 预览文件
+- `POST /api/upload` - 文件上传
 
-### 系统监控
+### 系统监控 (管理员)
 - `GET /api/system/status` - 系统状态
-- `GET /api/system/processes` - 进程列表 (管理员)
+- `GET /api/system/processes` - 进程列表
 
-## 🔧 配置说明
+## 🐛 常见问题
 
-### 服务器配置
-- 默认端口: 8080
-- 最大文件大小: 50MB
-- 静态文件目录: `static/`
-- 文件存储目录: `shared/`
+### 构建失败
+- 确保已安装所有依赖库
+- 检查 GCC 版本是否支持 C++17
+- 确保有足够的磁盘空间
 
-### 数据库配置
-- 数据库文件: `bin/g00j_share.db`
-- 自动创建表结构
-- 自动创建默认管理员账户
+### 启动失败
+- 检查端口 8080 是否被占用
+- 确保有创建文件和目录的权限
+- 查看错误日志定位问题
 
-## 🚀 开发指南
+### 文件上传失败
+- 检查文件大小是否超出限制
+- 确认文件类型是否在白名单中
+- 检查磁盘空间是否充足
 
-### 编译
-```bash
-# 开发模式编译
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Debug
-make -j$(nproc)
-```
+## 🤝 贡献指南
 
-### 测试
-```bash
-# 启动服务器后进行功能测试
-curl -X POST http://localhost:8080/api/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}'
-```
+1. Fork 项目
+2. 创建功能分支
+3. 提交更改
+4. 推送到分支
+5. 创建 Pull Request
 
 ## 📄 许可证
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+本项目采用 MIT 许可证，详见 LICENSE 文件。
 
-## 🤝 贡献
+## 👨‍💻 开发团队
 
-欢迎提交 Issue 和 Pull Request！
-
-## 📞 联系方式
-
-如有问题，请提交 Issue 或联系项目维护者。
+**g00j小站开发团队** - 致力于创建简单、高效的文件共享解决方案。
 
 ---
 
-**注意**: 首次运行时会自动创建数据库和默认目录结构。 
+⭐ 如果这个项目对您有帮助，请给我们一个 Star！ 

@@ -5,6 +5,7 @@
 #include <cstring>
 #include <ctime>
 #include <openssl/sha.h>
+#include <random>
 
 Database::Database(const std::string& db_path) : db_(nullptr), db_path_(db_path) {
 }
@@ -30,6 +31,7 @@ bool Database::initialize() {
         return false;
     }
     
+    std::cout << "数据库初始化成功" << std::endl;
     return true;
 }
 
@@ -335,4 +337,272 @@ std::string Database::hashPassword(const std::string& password) {
 
 bool Database::verifyPassword(const std::string& password, const std::string& hash) {
     return hashPassword(password) == hash;
+}
+
+std::string Database::generateSessionId() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 15);
+    
+    std::ostringstream oss;
+    for (int i = 0; i < 32; ++i) {
+        oss << std::hex << dis(gen);
+    }
+    return oss.str();
+}
+
+void Database::cleanupExpiredSessions() {
+    const char* sql = "DELETE FROM sessions WHERE expires_at <= datetime('now')";
+    sqlite3_exec(db_, sql, nullptr, nullptr, nullptr);
+}
+
+int Database::addFileRecord(const std::string& filename, const std::string& filepath,
+                          const std::string& category, long size, 
+                          const std::string& mime_type, int uploader_id) {
+    const char* sql = "INSERT INTO files (filename, filepath, category, size, mime_type, uploader_id) VALUES (?, ?, ?, ?, ?, ?)";
+    sqlite3_stmt* stmt;
+    
+    int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return -1;
+    }
+    
+    sqlite3_bind_text(stmt, 1, filename.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, filepath.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, category.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int64(stmt, 4, size);
+    sqlite3_bind_text(stmt, 5, mime_type.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 6, uploader_id);
+    
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    
+    if (rc != SQLITE_DONE) {
+        return -1;
+    }
+    
+    return sqlite3_last_insert_rowid(db_);
+}
+
+std::vector<FileInfo> Database::getFiles(int limit, int offset, const std::string& category) {
+    std::string sql = "SELECT id, filename, filepath, category, size, mime_type, uploader_id, uploaded_at FROM files";
+    
+    if (!category.empty()) {
+        sql += " WHERE category = ?";
+    }
+    
+    sql += " ORDER BY uploaded_at DESC LIMIT ? OFFSET ?";
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return {};
+    }
+    
+    int param_index = 1;
+    if (!category.empty()) {
+        sqlite3_bind_text(stmt, param_index++, category.c_str(), -1, SQLITE_STATIC);
+    }
+    sqlite3_bind_int(stmt, param_index++, limit);
+    sqlite3_bind_int(stmt, param_index, offset);
+    
+    std::vector<FileInfo> files;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        FileInfo file;
+        file.id = sqlite3_column_int(stmt, 0);
+        file.filename = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        file.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        file.category = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        file.size = sqlite3_column_int64(stmt, 4);
+        file.mime_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        file.uploader_id = sqlite3_column_int(stmt, 6);
+        file.uploaded_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+        files.push_back(file);
+    }
+    
+    sqlite3_finalize(stmt);
+    return files;
+}
+
+FileInfo* Database::getFileById(int file_id) {
+    const char* sql = "SELECT id, filename, filepath, category, size, mime_type, uploader_id, uploaded_at FROM files WHERE id = ?";
+    sqlite3_stmt* stmt;
+    
+    int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return nullptr;
+    }
+    
+    sqlite3_bind_int(stmt, 1, file_id);
+    
+    FileInfo* file = nullptr;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        file = new FileInfo();
+        file->id = sqlite3_column_int(stmt, 0);
+        file->filename = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        file->filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        file->category = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        file->size = sqlite3_column_int64(stmt, 4);
+        file->mime_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        file->uploader_id = sqlite3_column_int(stmt, 6);
+        file->uploaded_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+    }
+    
+    sqlite3_finalize(stmt);
+    return file;
+}
+
+FileInfo Database::getFileByName(const std::string& filename) {
+    const char* sql = "SELECT id, filename, filepath, category, size, mime_type, uploader_id, uploaded_at FROM files WHERE filename = ?";
+    sqlite3_stmt* stmt;
+    
+    int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return FileInfo();
+    }
+    
+    sqlite3_bind_text(stmt, 1, filename.c_str(), -1, SQLITE_STATIC);
+    
+    FileInfo file;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        file.id = sqlite3_column_int(stmt, 0);
+        file.filename = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        file.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        file.category = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        file.size = sqlite3_column_int64(stmt, 4);
+        file.mime_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+        file.uploader_id = sqlite3_column_int(stmt, 6);
+        file.uploaded_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+    }
+    
+    sqlite3_finalize(stmt);
+    return file;
+}
+
+int Database::getTotalFileCount(const std::string& category) {
+    std::string sql = "SELECT COUNT(*) FROM files";
+    
+    if (!category.empty()) {
+        sql += " WHERE category = ?";
+    }
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return 0;
+    }
+    
+    if (!category.empty()) {
+        sqlite3_bind_text(stmt, 1, category.c_str(), -1, SQLITE_STATIC);
+    }
+    
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+int Database::getUserCount() {
+    const char* sql = "SELECT COUNT(*) FROM users";
+    sqlite3_stmt* stmt;
+    
+    int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return 0;
+    }
+    
+    int count = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+int Database::getFileCount() {
+    return getTotalFileCount();
+}
+
+long Database::getTotalFileSize() {
+    const char* sql = "SELECT SUM(size) FROM files";
+    sqlite3_stmt* stmt;
+    
+    int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return 0;
+    }
+    
+    long total_size = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        total_size = sqlite3_column_int64(stmt, 0);
+    }
+    
+    sqlite3_finalize(stmt);
+    return total_size;
+}
+
+// 为兼容性添加缺失的方法
+Session Database::get_session(const std::string& session_id) {
+    Session* session = validateSession(session_id);
+    if (session) {
+        Session result = *session;
+        delete session;
+        return result;
+    }
+    return Session();
+}
+
+std::vector<FileInfo> Database::get_files(int page, int limit, const std::string& category) {
+    int offset = (page - 1) * limit;
+    return getFiles(limit, offset, category);
+}
+
+int Database::get_total_files(const std::string& category) {
+    return getTotalFileCount(category);
+}
+
+User Database::get_user(const std::string& username) {
+    User* user = getUserByUsername(username);
+    if (user) {
+        User result = *user;
+        delete user;
+        return result;
+    }
+    return User();
+}
+
+bool Database::create_session(const std::string& session_id, const std::string& username, const std::string& role) {
+    // 简化实现，存储会话信息
+    const char* sql = "INSERT INTO sessions (session_id, username, role, created_at, expires_at) VALUES (?, ?, ?, datetime('now'), datetime('now', '+24 hours'))";
+    sqlite3_stmt* stmt;
+    
+    int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return false;
+    }
+    
+    sqlite3_bind_text(stmt, 1, session_id.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, username.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, role.c_str(), -1, SQLITE_STATIC);
+    
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    
+    return rc == SQLITE_DONE;
+}
+
+bool Database::create_user(const std::string& username, const std::string& password, const std::string& role) {
+    return createUser(username, password, role);
+}
+
+int Database::getTotalFileCount() {
+    return getTotalFileCount("");
+}
+
+bool Database::verify_password(const std::string& username, const std::string& password) {
+    return verifyPassword(username, password);
 } 

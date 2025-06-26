@@ -1,9 +1,9 @@
-#ifndef SYSTEM_MONITOR_H
-#define SYSTEM_MONITOR_H
+#pragma once
 
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
 
 // 系统资源信息结构
 struct SystemInfo {
@@ -141,43 +141,83 @@ public:
     // 格式化时间
     static std::string formatTime(long seconds);
 
+    // 系统状态信息
+    static std::map<std::string, std::string> get_system_status();
+    
+    // CPU信息
+    static double get_cpu_usage();
+    static std::string get_cpu_info();
+    
+    // 内存信息
+    static std::unordered_map<std::string, long> get_memory_info();
+    
+    // 磁盘信息
+    static std::unordered_map<std::string, long> get_disk_info(const std::string& path = "/");
+    
+    // 网络信息
+    static std::map<std::string, std::string> get_network_info();
+    static std::vector<std::unordered_map<std::string, std::string>> get_network_interfaces();
+    
+    // 进程信息
+    static std::vector<std::map<std::string, std::string>> get_processes();
+    static bool kill_process(int pid);
+    
+    // 系统负载
+    static std::vector<double> get_load_average();
+    
+    // 系统运行时间
+    static std::string get_uptime();
+
 private:
+    std::string proc_path;       // /proc路径
     int monitor_interval_;
     bool monitoring_;
     std::vector<double> cpu_samples_;
     
     // 读取文件内容
-    std::string readFile(const std::string& filepath);
+    std::string read_file(const std::string& filepath);
     
     // 读取文件的第一行
     std::string readFirstLine(const std::string& filepath);
     
     // 分割字符串
-    std::vector<std::string> split(const std::string& str, char delimiter);
+    std::vector<std::string> split_string(const std::string& str, char delimiter);
     
     // 去除字符串首尾空白
     std::string trim(const std::string& str);
     
-    // 解析/proc/stat获取CPU信息
-    std::vector<long> parseCpuStats();
+    // 解析CPU使用率
+    double parse_cpu_usage();
     
-    // 解析/proc/meminfo获取内存信息
-    std::map<std::string, long> parseMemInfo();
+    // 解析内存信息
+    void parse_memory_info(long& total, long& free);
     
-    // 解析/proc/diskstats获取磁盘信息
-    std::map<std::string, long> parseDiskStats();
+    // 解析磁盘信息
+    void parse_disk_info(const std::string& path, long& total, long& free);
     
-    // 解析/proc/loadavg获取负载信息
-    std::vector<double> parseLoadAvg();
+    // 解析负载信息
+    void parse_load_average(double load[3]);
     
-    // 解析/proc/[pid]/stat获取进程信息
-    ProcessInfo parseProcessStat(int pid);
+    // 解析运行时间
+    std::string parse_uptime();
+    
+    // 解析进程信息
+    ProcessInfo parse_process_info(int pid);
     
     // 解析/proc/[pid]/status获取进程状态
     std::map<std::string, std::string> parseProcessStatus(int pid);
     
     // 解析/proc/net/dev获取网络接口信息
     std::vector<NetworkInterface> parseNetworkInterfaces();
+    
+    // 辅助方法
+    bool process_exists(int pid);
+    std::string format_memory_size(long size_kb);
+    bool kill_process(int pid, int signal);
+    int get_process_count();
+    int get_thread_count();
+    bool is_system_healthy();
+    void set_proc_path(const std::string& path);
     
     // 获取当前时间戳
     long getCurrentTimestamp();
@@ -187,6 +227,7 @@ private:
     
     // 监控线程函数
     void monitoringThread();
-};
 
-#endif // SYSTEM_MONITOR_H 
+    static std::string read_file_content(const std::string& filepath);
+    static long parse_memory_value(const std::string& value);
+}; 

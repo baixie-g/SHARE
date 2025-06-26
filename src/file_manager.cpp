@@ -3,394 +3,349 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <sys/stat.h>
+#include <regex>
+#include <random>
+#include <iomanip>
+#include <sstream>
 
 namespace fs = std::filesystem;
 
-FileManager::FileManager() : storage_root_("shared"), max_file_size_(50 * 1024 * 1024) {
-    initializeMimeTypes();
-    initializeAllowedTypes();
+FileManager::FileManager(const std::string& base_path) 
+    : base_path(base_path), max_file_size(50 * 1024 * 1024) {
+    initialize_mime_types();
+    initialize_allowed_types();
 }
 
 FileManager::~FileManager() {
 }
 
 bool FileManager::initialize() {
-    if (!createDirectory(storage_root_)) {
+    // 创建必要的目录
+    if (!create_directories()) {
+        std::cerr << "创建目录失败" << std::endl;
         return false;
     }
     
-    return createCategoryDirectories();
+    std::cout << "文件管理器初始化成功" << std::endl;
+    return true;
 }
 
-bool FileManager::createCategoryDirectories() {
-    std::vector<std::string> categories = {"videos", "documents", "images", "others"};
-    
-    for (const auto& category : categories) {
-        std::string path = storage_root_ + "/" + category;
-        if (!createDirectory(path)) {
-            return false;
-        }
+bool FileManager::save_file(const std::string& filename, const std::string& content, const std::string& uploader) {
+    if (!is_allowed_type(filename) || !is_size_valid(content.size())) {
+        return false;
     }
+    
+    std::string safe_filename = sanitize_filename(filename);
+    std::string mime_type = get_mime_type(safe_filename);
+    std::string category = get_file_category(mime_type);
+    std::string category_path = get_category_path(category);
+    
+    // 确保目录存在
+    std::filesystem::create_directories(category_path);
+    
+    std::string full_path = category_path + "/" + safe_filename;
+    
+    // 检查文件是否已存在，如果存在则重命名
+    int counter = 1;
+    std::string final_path = full_path;
+    while (std::filesystem::exists(final_path)) {
+        size_t dot_pos = safe_filename.find_last_of('.');
+        std::string name = safe_filename.substr(0, dot_pos);
+        std::string ext = safe_filename.substr(dot_pos);
+        final_path = category_path + "/" + name + "_" + std::to_string(counter) + ext;
+        counter++;
+    }
+    
+    std::ofstream file(final_path, std::ios::binary);
+    if (!file.is_open()) {
+        return false;
+    }
+    
+    file.write(content.c_str(), content.size());
+    file.close();
     
     return true;
 }
 
-bool FileManager::createDirectory(const std::string& path) {
-    try {
-        fs::create_directories(path);
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to create directory " << path << ": " << e.what() << std::endl;
-        return false;
-    }
-}
-
-bool FileManager::saveUploadedFile(const std::string& content, const std::string& filename, 
-                                 const std::string& category, std::string& saved_path) {
-    if (!isFileTypeAllowed(filename)) {
-        return false;
-    }
-    
-    if (!isFileSizeValid(content.length())) {
-        return false;
-    }
-    
-    std::string safe_filename = generateSafeFilename(filename);
-    std::string category_dir = storage_root_ + "/" + category;
-    
-    if (!directoryExists(category_dir)) {
-        if (!createDirectory(category_dir)) {
-            return false;
-        }
-    }
-    
-    saved_path = generateUniqueFilename(category_dir, safe_filename);
-    
-    try {
-        std::ofstream file(saved_path, std::ios::binary);
-        if (!file.is_open()) {
-            return false;
-        }
-        
-        file.write(content.data(), content.length());
-        file.close();
-        
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to save file: " << e.what() << std::endl;
-        return false;
-    }
-}
-
-std::vector<uint8_t> FileManager::readFile(const std::string& filepath) {
-    std::vector<uint8_t> data;
-    
-    if (!isPathSafe(filepath)) {
-        return data;
-    }
-    
-    try {
-        std::ifstream file(filepath, std::ios::binary);
-        if (!file.is_open()) {
-            return data;
-        }
-        
-        file.seekg(0, std::ios::end);
-        size_t size = file.tellg();
-        file.seekg(0, std::ios::beg);
-        
-        data.resize(size);
-        file.read(reinterpret_cast<char*>(data.data()), size);
-        file.close();
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to read file: " << e.what() << std::endl;
-        data.clear();
-    }
-    
-    return data;
-}
-
-long FileManager::getFileSize(const std::string& filepath) {
-    if (!isPathSafe(filepath)) {
-        return -1;
-    }
-    
-    try {
-        if (fs::exists(filepath)) {
-            return fs::file_size(filepath);
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to get file size: " << e.what() << std::endl;
-    }
-    
-    return -1;
-}
-
-std::string FileManager::generatePreview(const std::string& filepath, const std::string& file_type) {
-    if (!isPreviewSupported(file_type)) {
+std::string FileManager::read_file(const std::string& filepath) {
+    if (!is_safe_path(filepath) || !file_exists(filepath)) {
         return "";
     }
     
-    if (isTextFile(file_type)) {
-        return readTextFile(filepath);
+    std::ifstream file(filepath, std::ios::binary);
+    if (!file.is_open()) {
+        return "";
     }
     
-    return "";
+    std::ostringstream content;
+    content << file.rdbuf();
+    return content.str();
 }
 
-bool FileManager::isPreviewSupported(const std::string& file_type) {
-    return isTextFile(file_type) || isImageFile(file_type) || isVideoFile(file_type);
+bool FileManager::file_exists(const std::string& filepath) {
+    return std::filesystem::exists(filepath);
 }
 
-bool FileManager::isFileTypeAllowed(const std::string& filename) {
-    std::string ext = getFileExtension(filename);
-    ext = toLowerCase(ext);
-    
-    return std::find(allowed_types_.begin(), allowed_types_.end(), ext) != allowed_types_.end();
-}
-
-bool FileManager::isFileSizeValid(long file_size) {
-    return file_size <= max_file_size_;
-}
-
-bool FileManager::isPathSafe(const std::string& path) {
-    // 检查路径是否包含危险字符
-    if (path.find("..") != std::string::npos) {
-        return false;
+std::string FileManager::get_mime_type(const std::string& filename) {
+    // 获取文件扩展名
+    size_t dot_pos = filename.find_last_of('.');
+    if (dot_pos == std::string::npos) {
+        return "application/octet-stream";
     }
     
-    if (path.find("//") != std::string::npos) {
-        return false;
-    }
+    std::string ext = filename.substr(dot_pos + 1);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
     
-    // 确保路径在存储根目录下
-    try {
-        fs::path abs_path = fs::absolute(path);
-        fs::path abs_root = fs::absolute(storage_root_);
-        
-        std::string path_str = abs_path.string();
-        std::string root_str = abs_root.string();
-        
-        return path_str.substr(0, root_str.length()) == root_str;
-    } catch (const std::exception& e) {
-        return false;
-    }
-}
-
-std::string FileManager::generateSafeFilename(const std::string& original_filename) {
-    std::string safe_name = original_filename;
-    
-    // 替换危险字符
-    std::string dangerous_chars = "\\/:*?\"<>|";
-    for (char c : dangerous_chars) {
-        std::replace(safe_name.begin(), safe_name.end(), c, '_');
-    }
-    
-    return safe_name;
-}
-
-std::string FileManager::determineCategory(const std::string& filename) {
-    std::string ext = getFileExtension(filename);
-    ext = toLowerCase(ext);
-    
-    if (ext == ".mp4" || ext == ".avi" || ext == ".mkv" || ext == ".mov" || ext == ".wmv") {
-        return "video";
-    } else if (ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".gif" || ext == ".bmp") {
-        return "image";
-    } else if (ext == ".txt" || ext == ".md" || ext == ".pdf" || ext == ".doc" || ext == ".docx") {
-        return "document";
-    } else {
-        return "other";
-    }
-}
-
-std::string FileManager::getMimeType(const std::string& filename) {
-    std::string ext = getFileExtension(filename);
-    ext = toLowerCase(ext);
-    
-    auto it = mime_types_.find(ext);
-    if (it != mime_types_.end()) {
+    auto it = mime_types.find(ext);
+    if (it != mime_types.end()) {
         return it->second;
     }
     
     return "application/octet-stream";
 }
 
-bool FileManager::deleteFile(const std::string& filepath) {
-    if (!isPathSafe(filepath)) {
+std::string FileManager::get_file_category(const std::string& mime_type) {
+    if (mime_type.find("video/") == 0) return "videos";
+    if (mime_type.find("image/") == 0) return "images";
+    if (mime_type.find("text/") == 0 || mime_type == "application/pdf") return "documents";
+    return "others";
+}
+
+long FileManager::get_file_size(const std::string& filepath) {
+    try {
+        return std::filesystem::file_size(filepath);
+    } catch (const std::exception&) {
+        return -1;
+    }
+}
+
+bool FileManager::is_safe_path(const std::string& path) {
+    // 检查路径是否包含危险字符
+    if (path.find("..") != std::string::npos ||
+        path.find("//") != std::string::npos ||
+        path.find("\\") != std::string::npos) {
         return false;
     }
     
+    // 确保路径在base_path内
+    std::filesystem::path abs_path = std::filesystem::absolute(path);
+    std::filesystem::path abs_base = std::filesystem::absolute(base_path);
+    
+    auto rel_path = std::filesystem::relative(abs_path, abs_base);
+    return !rel_path.empty() && rel_path.native()[0] != '.';
+}
+
+bool FileManager::is_allowed_type(const std::string& filename) {
+    size_t dot_pos = filename.find_last_of('.');
+    if (dot_pos == std::string::npos) {
+        return false;
+    }
+    
+    std::string ext = filename.substr(dot_pos + 1);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    
+    return std::find(allowed_types.begin(), allowed_types.end(), ext) != allowed_types.end();
+}
+
+bool FileManager::is_size_valid(size_t size) {
+    return size <= max_file_size;
+}
+
+bool FileManager::create_directories() {
     try {
-        return fs::remove(filepath);
+        std::filesystem::create_directories(base_path);
+        std::filesystem::create_directories(base_path + "/videos");
+        std::filesystem::create_directories(base_path + "/images");
+        std::filesystem::create_directories(base_path + "/documents");
+        std::filesystem::create_directories(base_path + "/others");
+        return true;
     } catch (const std::exception& e) {
-        std::cerr << "Failed to delete file: " << e.what() << std::endl;
+        std::cerr << "创建目录失败: " << e.what() << std::endl;
         return false;
     }
 }
 
-std::vector<std::string> FileManager::listFiles(const std::string& directory) {
-    std::vector<std::string> files;
-    
-    if (!isPathSafe(directory)) {
-        return files;
-    }
-    
-    try {
-        if (fs::exists(directory) && fs::is_directory(directory)) {
-            for (const auto& entry : fs::directory_iterator(directory)) {
-                if (entry.is_regular_file()) {
-                    files.push_back(entry.path().filename().string());
-                }
-            }
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to list files: " << e.what() << std::endl;
-    }
-    
-    return files;
+std::string FileManager::get_category_path(const std::string& category) {
+    return base_path + "/" + category;
 }
 
-void FileManager::initializeMimeTypes() {
-    mime_types_[".txt"] = "text/plain";
-    mime_types_[".md"] = "text/markdown";
-    mime_types_[".html"] = "text/html";
-    mime_types_[".css"] = "text/css";
-    mime_types_[".js"] = "application/javascript";
-    mime_types_[".json"] = "application/json";
-    mime_types_[".xml"] = "application/xml";
+void FileManager::initialize_mime_types() {
+    // 视频类型
+    mime_types["mp4"] = "video/mp4";
+    mime_types["avi"] = "video/x-msvideo";
+    mime_types["mkv"] = "video/x-matroska";
+    mime_types["mov"] = "video/quicktime";
+    mime_types["wmv"] = "video/x-ms-wmv";
+    mime_types["flv"] = "video/x-flv";
     
     // 图片类型
-    mime_types_[".jpg"] = "image/jpeg";
-    mime_types_[".jpeg"] = "image/jpeg";
-    mime_types_[".png"] = "image/png";
-    mime_types_[".gif"] = "image/gif";
-    mime_types_[".bmp"] = "image/bmp";
-    mime_types_[".svg"] = "image/svg+xml";
-    
-    // 视频类型
-    mime_types_[".mp4"] = "video/mp4";
-    mime_types_[".avi"] = "video/x-msvideo";
-    mime_types_[".mkv"] = "video/x-matroska";
-    mime_types_[".mov"] = "video/quicktime";
-    mime_types_[".wmv"] = "video/x-ms-wmv";
-    
-    // 音频类型
-    mime_types_[".mp3"] = "audio/mpeg";
-    mime_types_[".wav"] = "audio/wav";
-    mime_types_[".ogg"] = "audio/ogg";
+    mime_types["jpg"] = "image/jpeg";
+    mime_types["jpeg"] = "image/jpeg";
+    mime_types["png"] = "image/png";
+    mime_types["gif"] = "image/gif";
+    mime_types["bmp"] = "image/bmp";
+    mime_types["webp"] = "image/webp";
     
     // 文档类型
-    mime_types_[".pdf"] = "application/pdf";
-    mime_types_[".doc"] = "application/msword";
-    mime_types_[".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    mime_types_[".xls"] = "application/vnd.ms-excel";
-    mime_types_[".xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    mime_types["txt"] = "text/plain";
+    mime_types["md"] = "text/markdown";
+    mime_types["pdf"] = "application/pdf";
+    mime_types["doc"] = "application/msword";
+    mime_types["docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    mime_types["xls"] = "application/vnd.ms-excel";
+    mime_types["xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     
     // 压缩文件
-    mime_types_[".zip"] = "application/zip";
-    mime_types_[".rar"] = "application/x-rar-compressed";
-    mime_types_[".7z"] = "application/x-7z-compressed";
+    mime_types["zip"] = "application/zip";
+    mime_types["rar"] = "application/x-rar-compressed";
+    mime_types["7z"] = "application/x-7z-compressed";
+    
+    // 音频文件
+    mime_types["mp3"] = "audio/mpeg";
+    mime_types["wav"] = "audio/wav";
+    mime_types["flac"] = "audio/flac";
 }
 
-void FileManager::initializeAllowedTypes() {
-    allowed_types_ = {
-        ".txt", ".md", ".html", ".css", ".js", ".json", ".xml",
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg",
-        ".mp4", ".avi", ".mkv", ".mov", ".wmv",
-        ".mp3", ".wav", ".ogg",
-        ".pdf", ".doc", ".docx", ".xls", ".xlsx",
-        ".zip", ".rar", ".7z"
+void FileManager::initialize_allowed_types() {
+    allowed_types = {
+        // 视频
+        "mp4", "avi", "mkv", "mov", "wmv", "flv",
+        // 图片
+        "jpg", "jpeg", "png", "gif", "bmp", "webp",
+        // 文档
+        "txt", "md", "pdf", "doc", "docx", "xls", "xlsx",
+        // 压缩文件
+        "zip", "rar", "7z",
+        // 音频
+        "mp3", "wav", "flac"
     };
 }
 
-std::string FileManager::getFileExtension(const std::string& filename) {
-    size_t dot_pos = filename.find_last_of('.');
-    if (dot_pos != std::string::npos) {
-        return filename.substr(dot_pos);
+std::string FileManager::sanitize_filename(const std::string& filename) {
+    std::string result = filename;
+    
+    // 移除或替换危险字符
+    std::string dangerous_chars = "<>:\"/\\|?*";
+    for (char c : dangerous_chars) {
+        std::replace(result.begin(), result.end(), c, '_');
     }
-    return "";
-}
-
-std::string FileManager::toLowerCase(const std::string& str) {
-    std::string result = str;
-    std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+    
+    // 移除控制字符
+    result.erase(std::remove_if(result.begin(), result.end(),
+        [](char c) { return c >= 0 && c <= 31; }), result.end());
+    
+    // 限制文件名长度
+    if (result.length() > 255) {
+        size_t dot_pos = result.find_last_of('.');
+        if (dot_pos != std::string::npos && dot_pos > 200) {
+            std::string ext = result.substr(dot_pos);
+            result = result.substr(0, 255 - ext.length()) + ext;
+        } else {
+            result = result.substr(0, 255);
+        }
+    }
+    
     return result;
 }
 
-bool FileManager::directoryExists(const std::string& path) {
-    try {
-        return fs::exists(path) && fs::is_directory(path);
-    } catch (const std::exception& e) {
-        return false;
-    }
+bool FileManager::is_video_file(const std::string& filename) {
+    std::string ext = get_file_extension(filename);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    
+    return ext == ".mp4" || ext == ".avi" || ext == ".mkv" || 
+           ext == ".mov" || ext == ".wmv" || ext == ".flv" || 
+           ext == ".webm";
 }
 
-bool FileManager::fileExists(const std::string& path) {
-    try {
-        return fs::exists(path) && fs::is_regular_file(path);
-    } catch (const std::exception& e) {
-        return false;
-    }
+bool FileManager::is_image_file(const std::string& filename) {
+    std::string ext = get_file_extension(filename);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    
+    return ext == ".jpg" || ext == ".jpeg" || ext == ".png" || 
+           ext == ".gif" || ext == ".bmp" || ext == ".webp" || 
+           ext == ".svg";
 }
 
-std::string FileManager::generateUniqueFilename(const std::string& directory, const std::string& filename) {
-    std::string full_path = directory + "/" + filename;
+bool FileManager::is_document_file(const std::string& filename) {
+    std::string ext = get_file_extension(filename);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
     
-    if (!fileExists(full_path)) {
-        return full_path;
-    }
-    
-    // 如果文件已存在，添加数字后缀
-    std::string name = filename;
-    std::string ext = getFileExtension(filename);
-    
-    if (!ext.empty()) {
-        name = filename.substr(0, filename.length() - ext.length());
-    }
-    
-    int counter = 1;
-    do {
-        std::string new_filename = name + "_" + std::to_string(counter) + ext;
-        full_path = directory + "/" + new_filename;
-        counter++;
-    } while (fileExists(full_path));
-    
-    return full_path;
+    return ext == ".pdf" || ext == ".doc" || ext == ".docx" || 
+           ext == ".xls" || ext == ".xlsx" || ext == ".ppt" || 
+           ext == ".pptx";
 }
 
-std::string FileManager::readTextFile(const std::string& filepath) {
-    if (!isPathSafe(filepath)) {
+bool FileManager::is_text_file(const std::string& filename) {
+    std::string ext = get_file_extension(filename);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    
+    return ext == ".txt" || ext == ".md" || ext == ".json" || 
+           ext == ".xml" || ext == ".html" || ext == ".css" || 
+           ext == ".js";
+}
+
+std::string FileManager::read_text_file(const std::string& filepath) {
+    std::string full_path;
+    if (filepath.find(base_path) == 0) {
+        full_path = filepath;
+    } else {
+        full_path = base_path + "/" + filepath;
+    }
+    
+    if (!is_safe_path(filepath)) {
         return "";
     }
     
-    try {
-        std::ifstream file(filepath);
-        if (!file.is_open()) {
-            return "";
-        }
-        
-        std::string content((std::istreambuf_iterator<char>(file)),
-                           std::istreambuf_iterator<char>());
-        file.close();
-        
-        return content;
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to read text file: " << e.what() << std::endl;
+    std::ifstream file(full_path);
+    if (!file.is_open()) {
         return "";
     }
+    
+    std::ostringstream oss;
+    oss << file.rdbuf();
+    return oss.str();
 }
 
-bool FileManager::isTextFile(const std::string& file_type) {
-    return file_type.find("text/") == 0 || 
-           file_type.find("application/json") == 0 ||
-           file_type.find("application/xml") == 0;
+std::string FileManager::format_file_size(long size) {
+    const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+    int unit_index = 0;
+    double size_double = static_cast<double>(size);
+    
+    while (size_double >= 1024.0 && unit_index < 4) {
+        size_double /= 1024.0;
+        unit_index++;
+    }
+    
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(1) << size_double << " " << units[unit_index];
+    return oss.str();
 }
 
-bool FileManager::isVideoFile(const std::string& file_type) {
-    return file_type.find("video/") == 0;
+std::vector<std::string> FileManager::list_files(const std::string& directory) {
+    // 简单实现，实际项目中可能需要更复杂的目录遍历
+    std::vector<std::string> files;
+    return files;
 }
 
-bool FileManager::isImageFile(const std::string& file_type) {
-    return file_type.find("image/") == 0;
+bool FileManager::create_directory(const std::string& path) {
+    struct stat st = {0};
+    
+    if (stat(path.c_str(), &st) == -1) {
+        return mkdir(path.c_str(), 0755) == 0;
+    }
+    
+    return true; // 目录已存在
+}
+
+void FileManager::set_max_file_size(long size) {
+    max_file_size = size;
+}
+
+std::string FileManager::get_file_extension(const std::string& filename) {
+    size_t dot_pos = filename.find_last_of('.');
+    if (dot_pos == std::string::npos) {
+        return "";
+    }
+    return filename.substr(dot_pos);
 } 

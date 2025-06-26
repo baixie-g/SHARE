@@ -1,118 +1,105 @@
-#ifndef FILE_MANAGER_H
-#define FILE_MANAGER_H
+#pragma once
 
 #include <string>
 #include <vector>
 #include <map>
+#include "database.h"
+
+// 文件上传结果
+struct UploadResult {
+    bool success;
+    std::string message;
+    std::string filename;
+    long file_size;
+    std::string file_path;
+};
 
 /**
  * 文件管理器类
  * 负责文件的上传、下载、预览、安全检查等操作
  */
 class FileManager {
+private:
+    std::string base_path;
+    std::map<std::string, std::string> mime_types;
+    std::vector<std::string> allowed_types;
+    long max_file_size;
+
 public:
-    FileManager();
+    FileManager(const std::string& base_path);
     ~FileManager();
-
-    // 初始化文件管理器，创建必要的目录
+    
+    // 初始化
     bool initialize();
-
-    // === 文件上传 ===
-    // 保存上传的文件
+    
+    // 文件上传
+    bool save_file(const std::string& filename, const std::string& content, const std::string& uploader);
+    UploadResult upload_file(const std::string& filename, const std::vector<uint8_t>& data);
+    
+    // 文件读取
+    std::string read_file(const std::string& filepath);
+    std::string read_text_file(const std::string& filepath);
+    std::vector<uint8_t> readFile(const std::string& filepath);
+    bool file_exists(const std::string& filepath);
+    
+    // 文件信息
+    std::string get_mime_type(const std::string& filename);
+    std::string getMimeType(const std::string& filename);
+    std::string get_file_category(const std::string& mime_type);
+    std::string determineCategory(const std::string& filename);
+    long get_file_size(const std::string& filepath);
+    long getFileSize(const std::string& filepath);
+    
+    // 安全检查
+    bool is_safe_path(const std::string& path);
+    bool isPathSafe(const std::string& path);
+    bool is_allowed_type(const std::string& filename);
+    bool isFileTypeAllowed(const std::string& filename);
+    bool is_size_valid(size_t size);
+    bool isFileSizeValid(long file_size);
+    
+    // 目录管理
+    bool create_directories();
+    bool createDirectory(const std::string& path);
+    std::string get_category_path(const std::string& category);
+    std::vector<std::string> list_files(const std::string& directory);
+    std::vector<std::string> listFiles(const std::string& directory);
+    
+    // 文件保存
     bool saveUploadedFile(const std::string& content, const std::string& filename, 
                          const std::string& category, std::string& saved_path);
     
-    // 处理分块上传
-    bool handleChunkedUpload(const std::string& chunk_data, const std::string& filename,
-                           int chunk_index, int total_chunks, std::string& final_path);
-
-    // === 文件下载 ===
-    // 读取文件内容
-    std::vector<uint8_t> readFile(const std::string& filepath);
-    
-    // 支持范围请求的文件读取
-    std::vector<uint8_t> readFileRange(const std::string& filepath, long start, long end);
-    
-    // 获取文件大小
-    long getFileSize(const std::string& filepath);
-
-    // === 文件预览 ===
-    // 生成文件预览内容
-    std::string generatePreview(const std::string& filepath, const std::string& file_type);
-    
-    // 检查文件是否支持在线预览
-    bool isPreviewSupported(const std::string& file_type);
-
-    // === 文件安全 ===
-    // 验证文件类型是否允许
-    bool isFileTypeAllowed(const std::string& filename);
-    
-    // 检查文件大小是否在限制内
-    bool isFileSizeValid(long file_size);
-    
-    // 安全的路径检查，防止路径遍历攻击
-    bool isPathSafe(const std::string& path);
-    
-    // 生成安全的文件名
-    std::string generateSafeFilename(const std::string& original_filename);
-
-    // === 文件压缩 ===
-    // 解压文件到指定目录
-    bool extractArchive(const std::string& archive_path, const std::string& extract_dir);
-    
-    // 检查是否为压缩文件
-    bool isArchiveFile(const std::string& filename);
-
-    // === 目录管理 ===
-    // 创建目录
-    bool createDirectory(const std::string& path);
-    
-    // 删除文件
+    // 文件删除
     bool deleteFile(const std::string& filepath);
     
-    // 获取目录下的文件列表
-    std::vector<std::string> listFiles(const std::string& directory);
+    // 文件预览
+    std::string generatePreview(const std::string& filepath, const std::string& file_type);
+    bool isPreviewSupported(const std::string& file_type);
     
-    // 获取文件信息
+    // 工具方法
+    std::string format_file_size(long size);
+    std::string generateSafeFilename(const std::string& original_filename);
     std::map<std::string, std::string> getFileInfo(const std::string& filepath);
-
-    // === 文件分类 ===
-    // 根据文件扩展名确定分类
-    std::string determineCategory(const std::string& filename);
     
-    // 获取MIME类型
-    std::string getMimeType(const std::string& filename);
-
-    // === 配置管理 ===
-    // 设置最大文件大小限制
-    void setMaxFileSize(long max_size) { max_file_size_ = max_size; }
+    // 配置
+    void setMaxFileSize(long max_size) { max_file_size = max_size; }
+    void setAllowedTypes(const std::vector<std::string>& types) { allowed_types = types; }
+    void setStorageRoot(const std::string& root) { base_path = root; }
+    long get_max_file_size() const { return max_file_size; }
     
-    // 设置允许的文件类型
-    void setAllowedTypes(const std::vector<std::string>& types) { allowed_types_ = types; }
-    
-    // 设置存储根目录
-    void setStorageRoot(const std::string& root) { storage_root_ = root; }
+    // 源码中需要的额外方法
+    bool is_video_file(const std::string& filename);
+    bool is_image_file(const std::string& filename);
+    bool is_document_file(const std::string& filename);
+    bool is_text_file(const std::string& filename);
+    bool create_directory(const std::string& path);
+    void set_max_file_size(long size);
+    std::string get_file_extension(const std::string& filename);
 
 private:
-    std::string storage_root_;
-    long max_file_size_;
-    std::vector<std::string> allowed_types_;
-    std::map<std::string, std::string> mime_types_;
-    
-    // 初始化MIME类型映射
-    void initializeMimeTypes();
-    
-    // 初始化允许的文件类型
-    void initializeAllowedTypes();
-    
-    // 创建分类目录
-    bool createCategoryDirectories();
-    
-    // 获取文件扩展名
-    std::string getFileExtension(const std::string& filename);
-    
-    // 转换为小写
-    std::string toLowerCase(const std::string& str);
+    void initialize_mime_types();
+    void initialize_allowed_types();
+    std::string sanitize_filename(const std::string& filename);
     
     // 检查目录是否存在
     bool directoryExists(const std::string& path);
@@ -134,6 +121,4 @@ private:
     
     // 检查是否为图片文件
     bool isImageFile(const std::string& file_type);
-};
-
-#endif // FILE_MANAGER_H 
+}; 

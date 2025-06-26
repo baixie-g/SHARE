@@ -1,111 +1,135 @@
-#ifndef JSON_HELPER_H
-#define JSON_HELPER_H
+#pragma once
 
 #include <string>
-#include <map>
 #include <vector>
-#include <variant>
+#include <map>
+#include <unordered_map>
+#include <memory>
+#include "database.h"
 
-// JSON值类型
-using JsonValue = std::variant<std::string, int, double, bool, std::nullptr_t>;
+// 前向声明
+struct User;
+struct FileInfo;
 
-/**
- * 简单的JSON处理类
- * 提供基础的JSON序列化和反序列化功能
- */
-class JsonHelper {
-public:
-    // JSON对象类型
-    using JsonObject = std::map<std::string, JsonValue>;
-    using JsonArray = std::vector<JsonValue>;
-
-    // === 序列化功能 ===
-    // 将对象转换为JSON字符串
-    static std::string objectToJson(const JsonObject& obj);
-    
-    // 将数组转换为JSON字符串
-    static std::string arrayToJson(const JsonArray& arr);
-    
-    // 将值转换为JSON字符串
-    static std::string valueToJson(const JsonValue& value);
-
-    // === 反序列化功能 ===
-    // 从JSON字符串解析对象
-    static JsonObject parseObject(const std::string& json);
-    
-    // 从JSON字符串解析数组
-    static JsonArray parseArray(const std::string& json);
-    
-    // 从JSON字符串解析值
-    static JsonValue parseValue(const std::string& json);
-
-    // === 便利函数 ===
-    // 创建成功响应
-    static std::string createSuccessResponse(const std::string& message = "Success", 
-                                           const JsonObject& data = {});
-    
-    // 创建错误响应
-    static std::string createErrorResponse(const std::string& error, int code = 400);
-    
-    // 创建文件列表响应
-    static std::string createFileListResponse(const std::vector<std::map<std::string, std::string>>& files);
-    
-    // 创建用户信息响应
-    static std::string createUserResponse(const std::string& username, const std::string& role, int id);
-    
-    // 创建系统状态响应
-    static std::string createSystemStatusResponse(const std::map<std::string, std::string>& status);
-
-    // === 类型转换辅助 ===
-    // 获取字符串值
-    static std::string getString(const JsonValue& value, const std::string& default_val = "");
-    
-    // 获取整数值
-    static int getInt(const JsonValue& value, int default_val = 0);
-    
-    // 获取浮点数值
-    static double getDouble(const JsonValue& value, double default_val = 0.0);
-    
-    // 获取布尔值
-    static bool getBool(const JsonValue& value, bool default_val = false);
-
-    // === 验证功能 ===
-    // 检查JSON格式是否有效
-    static bool isValidJson(const std::string& json);
-    
-    // 检查对象是否包含必需字段
-    static bool hasRequiredFields(const JsonObject& obj, const std::vector<std::string>& fields);
-
-private:
-    // 解析字符串，处理转义字符
-    static std::string parseString(const std::string& str, size_t& pos);
-    
-    // 解析数字
-    static JsonValue parseNumber(const std::string& str, size_t& pos);
-    
-    // 解析布尔值或null
-    static JsonValue parseLiteral(const std::string& str, size_t& pos);
-    
-    // 跳过空白字符
-    static void skipWhitespace(const std::string& str, size_t& pos);
-    
-    // 转义字符串
-    static std::string escapeString(const std::string& str);
-    
-    // 反转义字符串
-    static std::string unescapeString(const std::string& str);
-    
-    // 检查字符是否为数字开始字符
-    static bool isNumberStart(char c);
-    
-    // 检查字符是否为字母
-    static bool isAlpha(char c);
-    
-    // 检查字符是否为数字
-    static bool isDigit(char c);
-    
-    // 检查字符是否为空白字符
-    static bool isWhitespace(char c);
+// JSON值类型枚举
+enum class JsonType {
+    Null,
+    Boolean,
+    Number,
+    String,
+    Array,
+    Object
 };
 
-#endif // JSON_HELPER_H 
+// JSON值类
+class JsonValue {
+private:
+    JsonType type;
+    std::string string_value;
+    double number_value;
+    bool boolean_value;
+    std::vector<std::shared_ptr<JsonValue>> array_value;
+    std::unordered_map<std::string, std::shared_ptr<JsonValue>> object_value;
+
+public:
+    JsonValue();
+    JsonValue(const std::string& str);
+    JsonValue(const char* str);
+    JsonValue(int num);
+    JsonValue(long num);
+    JsonValue(double num);
+    JsonValue(bool val);
+    
+    // 设置为数组
+    void set_array();
+    
+    // 设置为对象
+    void set_object();
+    
+    // 添加数组元素
+    void add_array_element(std::shared_ptr<JsonValue> value);
+    
+    // 设置对象属性
+    void set_object_property(const std::string& key, std::shared_ptr<JsonValue> value);
+    
+    // 序列化为JSON字符串
+    std::string to_string() const;
+    
+    // 获取类型
+    JsonType get_type() const { return type; }
+    
+    // 静态工厂方法
+    static std::shared_ptr<JsonValue> create_string(const std::string& str);
+    static std::shared_ptr<JsonValue> create_number(double num);
+    static std::shared_ptr<JsonValue> create_boolean(bool val);
+    static std::shared_ptr<JsonValue> create_null();
+    static std::shared_ptr<JsonValue> create_array();
+    static std::shared_ptr<JsonValue> create_object();
+};
+
+// JSON助手类
+class JsonHelper {
+public:
+    // API响应生成
+    static std::string success_response(const std::string& message = "success");
+    static std::string error_response(const std::string& message, int code = 400);
+    static std::string data_response(const std::string& data, const std::string& message = "success");
+    
+    // 对象序列化
+    static std::string serialize_user(const User& user);
+    static std::string serialize_file(const FileInfo& file);
+    static std::string serialize_session(const Session& session);
+    
+    // 数组序列化
+    static std::string serialize_users(const std::vector<User>& users);
+    static std::string serialize_files(const std::vector<FileInfo>& files);
+    
+    // 分页响应
+    static std::string paginated_response(const std::string& data, int total, int page, int limit);
+    
+    // 系统状态序列化
+    static std::string serialize_system_status(const std::map<std::string, std::string>& status);
+    static std::string serialize_processes(const std::vector<std::map<std::string, std::string>>& processes);
+    
+    // 工具方法
+    static std::string escape_json_string(const std::string& str);
+    static std::map<std::string, std::string> parse_form_data(const std::string& data);
+    
+    // JsonValue工厂方法
+    static std::shared_ptr<JsonValue> user_to_json(const User& user);
+    static std::shared_ptr<JsonValue> file_info_to_json(const FileInfo& file);
+    static std::shared_ptr<JsonValue> users_to_json(const std::vector<User>& users);
+    static std::shared_ptr<JsonValue> files_to_json(const std::vector<FileInfo>& files);
+    
+    // 响应生成方法
+    static std::string create_success_response(const std::string& message, std::shared_ptr<JsonValue> data = nullptr);
+    static std::string create_error_response(const std::string& message, int code = 400);
+    static std::string create_paginated_response(const std::vector<FileInfo>& files, int total, int page, int limit);
+    static std::string create_system_status_response(double cpu_usage, double memory_usage, double disk_usage, int process_count);
+    
+    // 其他工具方法
+    static std::shared_ptr<JsonValue> params_to_json(const std::unordered_map<std::string, std::string>& params);
+    static std::string objectToJson(const std::unordered_map<std::string, std::string>& obj);
+    static std::string arrayToJson(const std::vector<std::string>& arr);
+    static std::string valueToJson(const JsonValue& value);
+    static std::string createSuccessResponse(const std::string& message, const std::unordered_map<std::string, std::string>& data);
+    static std::string createErrorResponse(const std::string& error, int code);
+    static std::string createFileListResponse(const std::vector<std::map<std::string, std::string>>& files);
+    static std::string createUserResponse(const std::string& username, const std::string& role, int id);
+    static std::string createSystemStatusResponse(const std::map<std::string, std::string>& status);
+    static std::string getString(const JsonValue& value, const std::string& default_val);
+    static int getInt(const JsonValue& value, int default_val);
+    static double getDouble(const JsonValue& value, double default_val);
+    static bool getBool(const JsonValue& value, bool default_val);
+    static std::unordered_map<std::string, std::string> parseObject(const std::string& json);
+    static bool hasRequiredFields(const std::unordered_map<std::string, std::string>& obj, const std::vector<std::string>& fields);
+    static std::string parseString(const std::string& str, size_t& pos);
+    static JsonValue parseNumber(const std::string& str, size_t& pos);
+    static JsonValue parseLiteral(const std::string& str, size_t& pos);
+    static void skipWhitespace(const std::string& str, size_t& pos);
+    static std::string escapeString(const std::string& str);
+    static bool isNumberStart(char c);
+    static bool isAlpha(char c);
+    static bool isDigit(char c);
+    static bool isWhitespace(char c);
+}; 

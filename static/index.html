@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>g00j小站 - 文件共享系统</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="/css/style.css">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
 </head>
@@ -14,21 +14,25 @@
         <nav class="navbar">
             <div class="nav-container">
                 <div class="nav-brand">
-                    <h1>📁 g00j小站</h1>
+                    <h1>🏠 g00j小站</h1>
                 </div>
                 <div class="nav-menu">
-                    <a href="#" @click="currentView = 'home'" :class="{active: currentView === 'home'}">首页</a>
-                    <a href="#" @click="currentView = 'files'" :class="{active: currentView === 'files'}">文件管理</a>
-                    <a href="#" @click="currentView = 'monitor'" v-if="user && user.role === 'admin'" :class="{active: currentView === 'monitor'}">系统监控</a>
-                </div>
-                <div class="nav-auth">
-                    <div v-if="!user">
-                        <button @click="showLogin = true" class="btn btn-primary">登录</button>
-                        <button @click="showRegister = true" class="btn btn-secondary">注册</button>
-                    </div>
-                    <div v-else class="user-info">
-                        <span>欢迎, {{ user.username }} ({{ user.role }})</span>
-                        <button @click="logout" class="btn btn-danger">登出</button>
+                    <button @click="currentView = 'home'" :class="{'active': currentView === 'home'}">
+                        🏡 首页
+                    </button>
+                    <button @click="currentView = 'files'" :class="{'active': currentView === 'files'}">
+                        📂 文件管理
+                    </button>
+                    <button v-if="user && user.role === 'admin'" @click="currentView = 'monitor'" 
+                            :class="{'active': currentView === 'monitor'}">
+                        📊 系统监控
+                    </button>
+                    <button v-if="!user" @click="showLoginModal = true" class="login-btn">
+                        🔑 登录
+                    </button>
+                    <div v-if="user" class="user-menu">
+                        <span>👤 {{ user.username }}</span>
+                        <button @click="logout" class="logout-btn">🚪 登出</button>
                     </div>
                 </div>
             </div>
@@ -38,39 +42,43 @@
         <main class="main-content">
             <!-- 首页视图 -->
             <div v-if="currentView === 'home'" class="home-view">
-                <div class="hero-section">
-                    <h2>欢迎使用 g00j小站 文件共享系统</h2>
-                    <p>一个安全、高效的文件共享平台</p>
+                <div class="welcome-section">
+                    <h2>🎉 欢迎来到 g00j小站</h2>
+                    <p>轻量级文件共享平台，支持视频播放、文档阅读、文件管理等完整功能</p>
                 </div>
                 
-                <div class="features-grid">
-                    <div class="feature-card">
-                        <h3>📁 文件管理</h3>
-                        <p>支持多种文件类型的上传、下载和预览</p>
+                <div class="stats-cards">
+                    <div class="stat-card">
+                        <div class="stat-icon">📁</div>
+                        <div class="stat-info">
+                            <h3>{{ totalFiles }}</h3>
+                            <p>共享文件</p>
+                        </div>
                     </div>
-                    <div class="feature-card">
-                        <h3>🎥 在线播放</h3>
-                        <p>支持视频在线播放和文档在线阅读</p>
+                    <div class="stat-card">
+                        <div class="stat-icon">👥</div>
+                        <div class="stat-info">
+                            <h3>{{ onlineUsers }}</h3>
+                            <p>在线用户</p>
+                        </div>
                     </div>
-                    <div class="feature-card">
-                        <h3>🔐 权限管理</h3>
-                        <p>三级用户权限，确保数据安全</p>
-                    </div>
-                    <div class="feature-card">
-                        <h3>📊 系统监控</h3>
-                        <p>实时监控系统资源使用情况</p>
+                    <div class="stat-card" v-if="systemStatus">
+                        <div class="stat-icon">💾</div>
+                        <div class="stat-info">
+                            <h3>{{ parseFloat(systemStatus.disk_usage || 0).toFixed(1) }}%</h3>
+                            <p>磁盘使用率</p>
+                        </div>
                     </div>
                 </div>
 
-                <!-- 最新文件展示 -->
                 <div class="recent-files">
-                    <h3>最新共享文件</h3>
+                    <h3>📋 最新文件</h3>
                     <div class="file-grid">
-                        <div v-for="file in recentFiles" :key="file.id" class="file-item">
-                            <div class="file-icon">{{ getFileIcon(file.file_type) }}</div>
+                        <div v-for="file in recentFiles" :key="file.id" class="file-card">
+                            <div class="file-icon">{{ getFileIcon(file.category) }}</div>
                             <div class="file-info">
                                 <h4>{{ file.filename }}</h4>
-                                <p>{{ formatFileSize(file.file_size) }} | {{ file.upload_time }}</p>
+                                <p>{{ formatFileSize(file.size) }} · {{ formatDate(file.upload_time) }}</p>
                             </div>
                         </div>
                     </div>
@@ -80,83 +88,93 @@
             <!-- 文件管理视图 -->
             <div v-if="currentView === 'files'" class="files-view">
                 <div class="files-header">
-                    <h2>文件管理</h2>
-                    <button v-if="user" @click="showUpload = true" class="btn btn-primary">上传文件</button>
+                    <h2>📂 文件管理</h2>
+                    <div class="files-actions">
+                        <select v-model="currentCategory" @change="loadFiles">
+                            <option value="">所有文件</option>
+                            <option value="videos">视频文件</option>
+                            <option value="images">图片文件</option>
+                            <option value="documents">文档文件</option>
+                            <option value="others">其他文件</option>
+                        </select>
+                        <button v-if="user" @click="showUploadModal = true" class="upload-btn">
+                            📤 上传文件
+                        </button>
+                    </div>
                 </div>
 
-                <!-- 文件分类筛选 -->
-                <div class="file-filters">
-                    <button @click="filterCategory = ''" :class="{active: filterCategory === ''}" class="filter-btn">全部</button>
-                    <button @click="filterCategory = 'video'" :class="{active: filterCategory === 'video'}" class="filter-btn">视频</button>
-                    <button @click="filterCategory = 'document'" :class="{active: filterCategory === 'document'}" class="filter-btn">文档</button>
-                    <button @click="filterCategory = 'image'" :class="{active: filterCategory === 'image'}" class="filter-btn">图片</button>
-                    <button @click="filterCategory = 'other'" :class="{active: filterCategory === 'other'}" class="filter-btn">其他</button>
-                </div>
-
-                <!-- 文件列表 -->
                 <div class="files-list">
-                    <div v-for="file in filteredFiles" :key="file.id" class="file-row">
-                        <div class="file-icon">{{ getFileIcon(file.file_type) }}</div>
-                        <div class="file-name">{{ file.filename }}</div>
-                        <div class="file-size">{{ formatFileSize(file.file_size) }}</div>
-                        <div class="file-date">{{ file.upload_time }}</div>
+                    <div v-for="file in files" :key="file.id" class="file-item">
+                        <div class="file-icon">{{ getFileIcon(file.category) }}</div>
+                        <div class="file-details">
+                            <h4>{{ file.filename }}</h4>
+                            <p>{{ formatFileSize(file.size) }} · 上传者: {{ file.uploader }} · {{ formatDate(file.upload_time) }}</p>
+                        </div>
                         <div class="file-actions">
-                            <button @click="previewFile(file)" class="btn btn-sm btn-info">预览</button>
-                            <button v-if="user" @click="downloadFile(file)" class="btn btn-sm btn-success">下载</button>
+                            <button @click="previewFile(file)" class="preview-btn">👁️ 预览</button>
+                            <button v-if="user" @click="downloadFile(file)" class="download-btn">💾 下载</button>
                         </div>
                     </div>
+                </div>
+
+                <!-- 分页 -->
+                <div v-if="pagination.pages > 1" class="pagination">
+                    <button @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1">
+                        ⬅️ 上一页
+                    </button>
+                    <span>第 {{ pagination.page }} 页 / 共 {{ pagination.pages }} 页</span>
+                    <button @click="changePage(pagination.page + 1)" :disabled="pagination.page >= pagination.pages">
+                        下一页 ➡️
+                    </button>
                 </div>
             </div>
 
             <!-- 系统监控视图 -->
             <div v-if="currentView === 'monitor' && user && user.role === 'admin'" class="monitor-view">
-                <h2>系统监控</h2>
+                <h2>📊 系统监控</h2>
                 
-                <div class="monitor-grid">
+                <div class="monitor-cards">
                     <div class="monitor-card">
-                        <h3>CPU 使用率</h3>
-                        <div class="progress-circle">
-                            <span class="progress-text">{{ systemStatus.cpu_usage }}%</span>
+                        <h3>💻 CPU 使用率</h3>
+                        <div class="progress-bar">
+                            <div class="progress-fill" :style="{width: systemStatus.cpu_usage + '%'}"></div>
                         </div>
+                        <p>{{ parseFloat(systemStatus.cpu_usage || 0).toFixed(1) }}%</p>
                     </div>
                     
                     <div class="monitor-card">
-                        <h3>内存使用率</h3>
-                        <div class="progress-circle">
-                            <span class="progress-text">{{ systemStatus.memory_usage }}%</span>
+                        <h3>💾 内存使用率</h3>
+                        <div class="progress-bar">
+                            <div class="progress-fill" :style="{width: systemStatus.memory_usage + '%'}"></div>
                         </div>
+                        <p>{{ parseFloat(systemStatus.memory_usage || 0).toFixed(1) }}%</p>
                     </div>
                     
                     <div class="monitor-card">
-                        <h3>磁盘使用率</h3>
-                        <div class="progress-circle">
-                            <span class="progress-text">{{ systemStatus.disk_usage }}%</span>
+                        <h3>🗂️ 磁盘使用率</h3>
+                        <div class="progress-bar">
+                            <div class="progress-fill" :style="{width: systemStatus.disk_usage + '%'}"></div>
                         </div>
-                    </div>
-                    
-                    <div class="monitor-card">
-                        <h3>系统运行时间</h3>
-                        <p>{{ systemStatus.uptime }}</p>
+                        <p>{{ parseFloat(systemStatus.disk_usage || 0).toFixed(1) }}%</p>
                     </div>
                 </div>
 
-                <!-- 进程列表 -->
                 <div class="processes-section">
-                    <h3>系统进程</h3>
+                    <h3>🔄 进程列表</h3>
                     <div class="processes-table">
                         <div class="table-header">
                             <span>PID</span>
                             <span>进程名</span>
-                            <span>用户</span>
-                            <span>CPU%</span>
-                            <span>内存%</span>
+                            <span>状态</span>
+                            <span>操作</span>
                         </div>
-                        <div v-for="process in processes.slice(0, 10)" :key="process.pid" class="table-row">
+                        <div v-for="process in processes" :key="process.pid" class="table-row">
                             <span>{{ process.pid }}</span>
                             <span>{{ process.name }}</span>
-                            <span>{{ process.user }}</span>
-                            <span>{{ process.cpu_percent }}%</span>
-                            <span>{{ process.memory_percent }}%</span>
+                            <span>{{ process.status }}</span>
+                            <span>
+                                <button @click="killProcess(process.pid)" class="danger-btn">❌ 终止</button>
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -164,55 +182,84 @@
         </main>
 
         <!-- 登录模态框 -->
-        <div v-if="showLogin" class="modal-overlay" @click="showLogin = false">
+        <div v-if="showLoginModal" class="modal-overlay" @click="showLoginModal = false">
             <div class="modal" @click.stop>
-                <h3>用户登录</h3>
-                <form @submit.prevent="login">
-                    <input v-model="loginForm.username" type="text" placeholder="用户名" required>
-                    <input v-model="loginForm.password" type="password" placeholder="密码" required>
-                    <button type="submit" class="btn btn-primary">登录</button>
-                    <button type="button" @click="showLogin = false" class="btn btn-secondary">取消</button>
-                </form>
+                <div class="modal-header">
+                    <h3>🔑 用户登录</h3>
+                    <button @click="showLoginModal = false" class="close-btn">✖️</button>
+                </div>
+                <div class="modal-body">
+                    <form @submit.prevent="login">
+                        <div class="form-group">
+                            <label>用户名:</label>
+                            <input v-model="loginForm.username" type="text" required>
+                        </div>
+                        <div class="form-group">
+                            <label>密码:</label>
+                            <input v-model="loginForm.password" type="password" required>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="submit-btn">🚀 登录</button>
+                            <button type="button" @click="showRegisterForm = true" class="text-btn">
+                                还没有账户？点击注册
+                            </button>
+                        </div>
+                    </form>
+
+                    <form v-if="showRegisterForm" @submit.prevent="register" class="register-form">
+                        <h4>📝 用户注册</h4>
+                        <div class="form-group">
+                            <label>用户名:</label>
+                            <input v-model="registerForm.username" type="text" required>
+                        </div>
+                        <div class="form-group">
+                            <label>密码:</label>
+                            <input v-model="registerForm.password" type="password" required>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="submit-btn">📋 注册</button>
+                            <button type="button" @click="showRegisterForm = false" class="text-btn">
+                                返回登录
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
 
-        <!-- 注册模态框 -->
-        <div v-if="showRegister" class="modal-overlay" @click="showRegister = false">
+        <!-- 文件上传模态框 -->
+        <div v-if="showUploadModal" class="modal-overlay" @click="showUploadModal = false">
             <div class="modal" @click.stop>
-                <h3>用户注册</h3>
-                <form @submit.prevent="register">
-                    <input v-model="registerForm.username" type="text" placeholder="用户名" required>
-                    <input v-model="registerForm.password" type="password" placeholder="密码" required>
-                    <input v-model="registerForm.confirmPassword" type="password" placeholder="确认密码" required>
-                    <button type="submit" class="btn btn-primary">注册</button>
-                    <button type="button" @click="showRegister = false" class="btn btn-secondary">取消</button>
-                </form>
-            </div>
-        </div>
-
-        <!-- 文件预览模态框 -->
-        <div v-if="showPreview" class="modal-overlay" @click="showPreview = false">
-            <div class="modal preview-modal" @click.stop>
-                <h3>{{ previewFile.filename }}</h3>
-                <div class="preview-content">
-                    <div v-if="previewFile.file_type.startsWith('video/')" class="video-preview">
-                        <video controls :src="`/api/stream/${previewFile.id}`"></video>
+                <div class="modal-header">
+                    <h3>📤 文件上传</h3>
+                    <button @click="showUploadModal = false" class="close-btn">✖️</button>
+                </div>
+                <div class="modal-body">
+                    <div class="upload-area" @drop="handleFileDrop" @dragover.prevent @dragenter.prevent>
+                        <div class="upload-icon">📁</div>
+                        <p>拖拽文件到此处或点击选择文件</p>
+                        <input type="file" @change="handleFileSelect" ref="fileInput" multiple style="display: none;">
+                        <button @click="$refs.fileInput.click()" class="select-btn">选择文件</button>
                     </div>
-                    <div v-else-if="previewFile.file_type.startsWith('image/')" class="image-preview">
-                        <img :src="`/api/stream/${previewFile.id}`" alt="预览图片">
-                    </div>
-                    <div v-else-if="previewFile.file_type.startsWith('text/')" class="text-preview">
-                        <pre>{{ previewContent }}</pre>
-                    </div>
-                    <div v-else class="unsupported-preview">
-                        <p>该文件类型不支持预览</p>
+                    <div v-if="uploadFiles.length > 0" class="upload-list">
+                        <h4>待上传文件:</h4>
+                        <div v-for="(file, index) in uploadFiles" :key="index" class="upload-item">
+                            <span>{{ file.name }} ({{ formatFileSize(file.size) }})</span>
+                            <button @click="removeFile(index)" class="remove-btn">❌</button>
+                        </div>
+                        <button @click="uploadSelectedFiles" class="upload-submit-btn">🚀 开始上传</button>
                     </div>
                 </div>
-                <button @click="showPreview = false" class="btn btn-secondary">关闭</button>
             </div>
+        </div>
+
+        <!-- 消息提示 -->
+        <div v-if="message" :class="['message', message.type]" @click="message = null">
+            {{ message.text }}
         </div>
     </div>
 
-    <script src="js/app.js"></script>
+    <script src="/js/app.js"></script>
 </body>
+</html> 
 </html> 

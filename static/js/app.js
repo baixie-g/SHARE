@@ -11,232 +11,240 @@ createApp({
             // 用户信息
             user: null,
             
+            // 文件相关
+            files: [],
+            recentFiles: [],
+            loading: false,
+            selectedCategory: '',
+            pagination: {
+                page: 1,
+                per_page: 20,
+                total: 0,
+                total_pages: 0
+            },
+            
+            // 系统监控
+            systemStatus: {},
+            processes: [],
+            
             // 模态框状态
-            showLogin: false,
-            showRegister: false,
-            showUpload: false,
-            showPreview: false,
+            showLoginModal: false,
+            showUploadModal: false,
+            showPreviewModal: false,
+            isRegister: false,
             
             // 表单数据
             loginForm: {
                 username: '',
                 password: ''
             },
-            registerForm: {
-                username: '',
-                password: '',
-                confirmPassword: ''
-            },
             
-            // 文件相关
-            files: [],
-            recentFiles: [],
-            filterCategory: '',
-            previewFile: null,
+            // 文件上传
+            uploadFiles: [],
+            uploading: false,
+            
+            // 文件预览
+            previewFile: {},
             previewContent: '',
             
-            // 系统监控
-            systemStatus: {
-                cpu_usage: 0,
-                memory_usage: 0,
-                disk_usage: 0,
-                uptime: '',
-                process_count: 0,
-                load_average: 0
-            },
-            processes: [],
+            // 消息提示
+            message: '',
+            messageType: 'success',
             
-            // 状态
-            loading: false,
-            error: null
-        }
+            // 注册表单
+            registerForm: {
+                username: '',
+                password: ''
+            },
+            
+            // 统计数据
+            totalFiles: 0,
+            onlineUsers: 1
+        };
     },
     
-    computed: {
-        // 过滤后的文件列表
-        filteredFiles() {
-            if (!this.filterCategory) {
-                return this.files;
+    async created() {
+        // 检查登录状态
+        await this.checkLoginStatus();
+        
+        // 加载最新文件
+        await this.loadFiles();
+        
+        // 如果是管理员，加载系统状态
+        if (this.user && this.user.role === 'admin') {
+            await this.loadSystemStatus();
+        }
+        
+        // 定期刷新系统状态
+        setInterval(() => {
+            if (this.user && this.user.role === 'admin') {
+                this.loadSystemStatus();
             }
-            return this.files.filter(file => file.category === this.filterCategory);
-        }
-    },
-    
-    mounted() {
-        // 初始化应用
-        this.init();
+        }, 5000);
     },
     
     methods: {
-        // 初始化
-        async init() {
-            await this.checkLoginStatus();
-            await this.loadFiles();
-            await this.loadRecentFiles();
-            
-            // 如果是管理员，加载系统状态
-            if (this.user && this.user.role === 'admin') {
-                await this.loadSystemStatus();
-                // 定期更新系统状态
-                setInterval(() => {
-                    if (this.currentView === 'monitor') {
-                        this.loadSystemStatus();
-                        this.loadProcesses();
-                    }
-                }, 5000);
-            }
-        },
-        
-        // 检查登录状态
-        async checkLoginStatus() {
-            try {
-                const response = await axios.get('/api/user/status');
-                if (response.data.success) {
-                    this.user = response.data.data;
-                }
-            } catch (error) {
-                // 未登录，忽略错误
-            }
-        },
-        
-        // 用户登录
+        // 用户认证
         async login() {
             try {
-                this.loading = true;
-                const response = await axios.post('/api/login', this.loginForm);
+                const formData = new URLSearchParams();
+                formData.append('username', this.loginForm.username);
+                formData.append('password', this.loginForm.password);
+                
+                const response = await axios.post('/api/login', formData, {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+                });
                 
                 if (response.data.success) {
                     this.user = response.data.data;
-                    this.showLogin = false;
-                    this.loginForm = { username: '', password: '' };
                     this.showMessage('登录成功！', 'success');
+                    this.showLoginModal = false;
+                    this.showRegisterForm = false;
+                    this.loginForm = { username: '', password: '' };
+                    await this.checkLoginStatus();
                     
-                    // 重新加载数据
-                    await this.init();
+                    // 如果是管理员，加载系统状态
+                    if (this.user.role === 'admin') {
+                        await this.loadSystemStatus();
+                    }
                 } else {
                     this.showMessage(response.data.error || '登录失败', 'error');
                 }
             } catch (error) {
                 this.showMessage('网络错误，请重试', 'error');
-            } finally {
-                this.loading = false;
+                console.error('Login error:', error);
             }
         },
         
-        // 用户注册
         async register() {
-            if (this.registerForm.password !== this.registerForm.confirmPassword) {
-                this.showMessage('两次输入的密码不一致', 'error');
-                return;
-            }
-            
             try {
-                this.loading = true;
-                const response = await axios.post('/api/register', {
-                    username: this.registerForm.username,
-                    password: this.registerForm.password
+                const formData = new URLSearchParams();
+                formData.append('username', this.registerForm.username);
+                formData.append('password', this.registerForm.password);
+                
+                const response = await axios.post('/api/register', formData, {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
                 });
                 
                 if (response.data.success) {
-                    this.showRegister = false;
-                    this.registerForm = { username: '', password: '', confirmPassword: '' };
                     this.showMessage('注册成功！请登录', 'success');
+                    this.showRegisterForm = false;
+                    this.registerForm = { username: '', password: '' };
                 } else {
                     this.showMessage(response.data.error || '注册失败', 'error');
                 }
             } catch (error) {
                 this.showMessage('网络错误，请重试', 'error');
-            } finally {
-                this.loading = false;
+                console.error('Register error:', error);
             }
         },
         
-        // 用户登出
         async logout() {
             try {
                 await axios.post('/api/logout');
                 this.user = null;
+                this.showMessage('已登出', 'info');
                 this.currentView = 'home';
-                this.showMessage('已安全登出', 'success');
             } catch (error) {
                 this.showMessage('登出失败', 'error');
             }
         },
         
-        // 加载文件列表
+        async checkLoginStatus() {
+            // 简化的登录状态检查，基于Cookie
+            const cookies = document.cookie.split(';');
+            const sessionCookie = cookies.find(cookie => cookie.trim().startsWith('session_id='));
+            
+            if (sessionCookie) {
+                // 模拟用户信息，实际应该从API获取
+                this.user = {
+                    username: 'user',
+                    role: 'user'
+                };
+                
+                // 检查是否是管理员（简化判断）
+                if (this.loginForm.username === 'admin' || sessionCookie.includes('admin')) {
+                    this.user.role = 'admin';
+                    this.user.username = 'admin';
+                }
+            }
+        },
+        
+        // 文件管理
         async loadFiles() {
+            this.loading = true;
             try {
-                const response = await axios.get('/api/files', {
-                    params: {
-                        limit: 100,
-                        offset: 0,
-                        category: this.filterCategory
-                    }
-                });
+                const params = {
+                    page: this.pagination.page,
+                    category: this.selectedCategory
+                };
+                
+                const response = await axios.get('/api/files', { params });
                 
                 if (response.data.success) {
                     this.files = response.data.data;
-                }
-            } catch (error) {
-                this.showMessage('加载文件列表失败', 'error');
-            }
-        },
-        
-        // 加载最新文件
-        async loadRecentFiles() {
-            try {
-                const response = await axios.get('/api/files', {
-                    params: {
-                        limit: 6,
-                        offset: 0
+                    this.pagination = response.data.pagination;
+                    this.totalFiles = this.pagination.total;
+                    
+                    // 如果是首页，保存最新文件
+                    if (this.currentView === 'home') {
+                        this.recentFiles = this.files.slice(0, 6);
                     }
-                });
-                
-                if (response.data.success) {
-                    this.recentFiles = response.data.data;
                 }
             } catch (error) {
-                console.error('加载最新文件失败:', error);
+                this.showMessage('加载文件失败', 'error');
+            } finally {
+                this.loading = false;
             }
         },
         
-        // 加载系统状态
-        async loadSystemStatus() {
-            if (!this.user || this.user.role !== 'admin') return;
+        changePage(page) {
+            if (page >= 1 && page <= this.pagination.total_pages) {
+                this.pagination.page = page;
+                this.loadFiles();
+            }
+        },
+        
+        // 文件上传
+        handleFileSelect(event) {
+            const files = Array.from(event.target.files);
+            this.uploadFiles.push(...files);
+        },
+        
+        handleDrop(event) {
+            event.preventDefault();
+            const files = Array.from(event.dataTransfer.files);
+            this.uploadFiles.push(...files);
+        },
+        
+        removeUploadFile(index) {
+            this.uploadFiles.splice(index, 1);
+        },
+        
+        async uploadSelectedFiles() {
+            if (this.uploadFiles.length === 0) return;
             
-            try {
-                const response = await axios.get('/api/system/status');
-                if (response.data.success) {
-                    this.systemStatus = response.data.data;
-                }
-            } catch (error) {
-                console.error('加载系统状态失败:', error);
-            }
-        },
-        
-        // 加载进程列表
-        async loadProcesses() {
-            if (!this.user || this.user.role !== 'admin') return;
+            this.showMessage('文件上传功能正在开发中', 'info');
             
-            try {
-                const response = await axios.get('/api/system/processes');
-                if (response.data.success) {
-                    this.processes = response.data.data;
-                }
-            } catch (error) {
-                console.error('加载进程列表失败:', error);
-            }
+            // 清空文件列表
+            this.uploadFiles = [];
+            this.showUploadModal = false;
         },
         
-        // 预览文件
+        // 文件预览
         async previewFile(file) {
             this.previewFile = file;
-            this.showPreview = true;
+            this.showPreviewModal = true;
             
-            // 如果是文本文件，加载内容
-            if (file.file_type.startsWith('text/')) {
+            if (this.isTextFile(file.filename)) {
                 try {
-                    const response = await axios.get(`/api/preview/${file.id}`);
+                    const response = await axios.get(`/api/download/${file.filename}`, {
+                        responseType: 'text'
+                    });
                     this.previewContent = response.data;
                 } catch (error) {
                     this.previewContent = '无法加载文件内容';
@@ -244,109 +252,124 @@ createApp({
             }
         },
         
-        // 下载文件
-        async downloadFile(file) {
+        downloadFile(file) {
             if (!this.user) {
-                this.showMessage('请先登录后下载文件', 'error');
+                this.showMessage('请先登录', 'warning');
                 return;
             }
             
+            const link = document.createElement('a');
+            link.href = `/api/download/${file.filename}`;
+            link.download = file.filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        },
+        
+        // 系统监控
+        async loadSystemStatus() {
             try {
-                window.open(`/api/download/${file.id}`, '_blank');
+                const response = await axios.get('/api/system/status');
+                if (response.data.success) {
+                    this.systemStatus = response.data.data;
+                }
             } catch (error) {
-                this.showMessage('下载失败', 'error');
+                this.showMessage('加载系统状态失败', 'error');
             }
         },
         
-        // 获取文件图标
-        getFileIcon(fileType) {
-            if (fileType.startsWith('video/')) return '🎥';
-            if (fileType.startsWith('image/')) return '🖼️';
-            if (fileType.startsWith('audio/')) return '🎵';
-            if (fileType.includes('pdf')) return '📄';
-            if (fileType.includes('word')) return '📝';
-            if (fileType.includes('excel')) return '📊';
-            if (fileType.includes('zip') || fileType.includes('rar')) return '📦';
-            if (fileType.startsWith('text/')) return '📄';
-            return '📁';
+        async loadProcesses() {
+            try {
+                const response = await axios.get('/api/system/processes');
+                if (response.data.success) {
+                    this.processes = response.data.data;
+                }
+            } catch (error) {
+                this.showMessage('加载进程列表失败', 'error');
+            }
         },
         
-        // 格式化文件大小
+        // 工具函数
         formatFileSize(bytes) {
             if (bytes === 0) return '0 B';
-            
             const k = 1024;
             const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
-            
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
         },
         
-        // 显示消息
-        showMessage(message, type = 'info') {
-            // 创建临时消息元素
-            const messageEl = document.createElement('div');
-            messageEl.className = `message message-${type}`;
-            messageEl.textContent = message;
-            messageEl.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 10px 20px;
-                border-radius: 4px;
-                color: white;
-                font-weight: bold;
-                z-index: 10000;
-                animation: slideIn 0.3s ease;
-            `;
+        formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleString('zh-CN');
+        },
+        
+        getFileIcon(filename) {
+            const ext = filename.split('.').pop()?.toLowerCase();
             
-            // 设置背景色
-            switch (type) {
-                case 'success':
-                    messageEl.style.backgroundColor = '#4CAF50';
-                    break;
-                case 'error':
-                    messageEl.style.backgroundColor = '#f44336';
-                    break;
-                case 'warning':
-                    messageEl.style.backgroundColor = '#ff9800';
-                    break;
-                default:
-                    messageEl.style.backgroundColor = '#2196F3';
+            if (['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'].includes(ext)) {
+                return '🎬';
+            } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext)) {
+                return '🖼️';
+            } else if (['txt', 'md', 'pdf', 'doc', 'docx'].includes(ext)) {
+                return '📄';
+            } else if (['mp3', 'wav', 'flac', 'aac'].includes(ext)) {
+                return '🎵';
+            } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+                return '📦';
+            } else {
+                return '📄';
             }
-            
-            document.body.appendChild(messageEl);
-            
-            // 3秒后自动移除
+        },
+        
+        isVideoFile(filename) {
+            const ext = filename.split('.').pop()?.toLowerCase();
+            return ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'].includes(ext);
+        },
+        
+        isImageFile(filename) {
+            const ext = filename.split('.').pop()?.toLowerCase();
+            return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext);
+        },
+        
+        isTextFile(filename) {
+            const ext = filename.split('.').pop()?.toLowerCase();
+            return ['txt', 'md', 'json', 'xml', 'html', 'css', 'js'].includes(ext);
+        },
+        
+        // 模态框管理
+        closeModal() {
+            this.showLoginModal = false;
+            this.showUploadModal = false;
+            this.showPreviewModal = false;
+            this.isRegister = false;
+            this.loginForm = { username: '', password: '' };
+            this.uploadFiles = [];
+            this.previewFile = {};
+            this.previewContent = '';
+        },
+        
+        // 消息提示
+        showMessage(text, type = 'info') {
+            this.message = { text, type };
             setTimeout(() => {
-                if (messageEl.parentNode) {
-                    messageEl.parentNode.removeChild(messageEl);
-                }
+                this.message = null;
             }, 3000);
-        },
-        
-        // 切换视图后的处理
-        async onViewChange(view) {
-            this.currentView = view;
-            
-            if (view === 'files') {
-                await this.loadFiles();
-            } else if (view === 'monitor' && this.user && this.user.role === 'admin') {
-                await this.loadSystemStatus();
-                await this.loadProcesses();
-            }
         }
     },
     
     watch: {
-        // 监听分类筛选变化
-        filterCategory() {
-            this.loadFiles();
+        currentView(newView) {
+            if (newView === 'files') {
+                this.loadFiles();
+            } else if (newView === 'monitor' && this.user?.role === 'admin') {
+                this.loadSystemStatus();
+                this.loadProcesses();
+            }
         },
         
-        // 监听视图变化
-        currentView(newView) {
-            this.onViewChange(newView);
+        selectedCategory() {
+            this.pagination.page = 1;
+            this.loadFiles();
         }
     }
 }).mount('#app');

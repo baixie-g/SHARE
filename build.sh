@@ -1,69 +1,101 @@
 #!/bin/bash
 
-# g00j小站 文件共享系统 - 构建脚本
-# 编译C++后端服务器
+# g00j小站 构建脚本
 
-echo "=== g00j小站构建脚本 ==="
-echo "正在构建项目..."
+echo "=== g00j小站 文件共享系统 构建脚本 ==="
+echo "正在检查系统依赖..."
 
-# 检查必要的工具
-echo "检查构建工具..."
-if ! command -v cmake &> /dev/null; then
-    echo "错误: 未找到cmake，请先安装cmake"
+# 检查必要的依赖
+check_dependency() {
+    if command -v $1 >/dev/null 2>&1; then
+        echo "✓ $1 已安装"
+        return 0
+    else
+        echo "✗ $1 未安装"
+        return 1
+    fi
+}
+
+# 检查 cmake
+if ! check_dependency cmake; then
+    echo "请安装 cmake: sudo apt install cmake"
     exit 1
 fi
 
-if ! command -v pkg-config &> /dev/null; then
-    echo "错误: 未找到pkg-config，请先安装pkg-config"
+# 检查 g++
+if ! check_dependency g++; then
+    echo "请安装 g++: sudo apt install g++"
     exit 1
 fi
 
-# 检查SQLite3开发库
-echo "检查SQLite3开发库..."
+# 检查 pkg-config
+if ! check_dependency pkg-config; then
+    echo "请安装 pkg-config: sudo apt install pkg-config"
+    exit 1
+fi
+
+# 检查 SQLite3 开发库
 if ! pkg-config --exists sqlite3; then
-    echo "错误: 未找到SQLite3开发库，请安装libsqlite3-dev"
-    echo "Ubuntu/Debian: sudo apt-get install libsqlite3-dev"
-    echo "CentOS/RHEL: sudo yum install sqlite-devel"
+    echo "✗ SQLite3 开发库未安装"
+    echo "请安装: sudo apt install libsqlite3-dev"
     exit 1
+else
+    echo "✓ SQLite3 开发库已安装"
 fi
 
-# 创建必要的目录
-echo "创建目录结构..."
-mkdir -p bin
-mkdir -p obj
-mkdir -p shared/videos
-mkdir -p shared/documents
-mkdir -p shared/images
-mkdir -p shared/others
-mkdir -p static
+# 检查 OpenSSL 开发库
+if ! pkg-config --exists openssl; then
+    echo "✗ OpenSSL 开发库未安装"
+    echo "请安装: sudo apt install libssl-dev"
+    exit 1
+else
+    echo "✓ OpenSSL 开发库已安装"
+fi
 
-# 使用CMake构建项目
-echo "使用CMake构建项目..."
+echo
+echo "所有依赖检查完成，开始构建..."
+
+# 创建构建目录
 if [ ! -d "build" ]; then
     mkdir build
+    echo "✓ 创建 build 目录"
 fi
 
+# 创建 bin 目录
+if [ ! -d "bin" ]; then
+    mkdir bin
+    echo "✓ 创建 bin 目录"
+fi
+
+# 进入构建目录
 cd build
 
-# 生成构建文件
-cmake .. -DCMAKE_BUILD_TYPE=Release
-
-# 编译项目
-make -j$(nproc)
-
-# 检查编译是否成功
-if [ $? -eq 0 ]; then
-    echo "项目构建成功！"
-    
-    # 复制可执行文件到bin目录
-    cd ..
-    cp build/bin/g00j_file_share bin/
-    
-    echo "可执行文件已复制到 bin/g00j_file_share"
-    echo "使用 ./start.sh 启动服务器"
+echo
+echo "正在配置项目..."
+if cmake ..; then
+    echo "✓ CMake 配置成功"
 else
-    echo "项目构建失败！"
+    echo "✗ CMake 配置失败"
     exit 1
 fi
 
-echo "构建完成！" 
+echo
+echo "正在编译项目..."
+if make -j$(nproc); then
+    echo "✓ 编译成功"
+else
+    echo "✗ 编译失败"
+    exit 1
+fi
+
+# 返回项目根目录
+cd ..
+
+echo
+echo "=== 构建完成 ==="
+echo "可执行文件: ./bin/g00j_file_share"
+echo "静态文件目录: ./static/"
+echo "共享文件目录: ./shared/"
+echo
+echo "运行命令: ./start.sh"
+echo "或者直接运行: ./bin/g00j_file_share" 

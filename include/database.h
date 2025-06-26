@@ -1,5 +1,4 @@
-#ifndef DATABASE_H
-#define DATABASE_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -21,10 +20,14 @@ struct FileInfo {
     int id;
     std::string filename;
     std::string filepath;
-    std::string file_type;
-    long file_size;
+    std::string mime_type;
+    std::string file_type;      // 添加file_type字段
+    long size;
+    long file_size;             // 添加file_size字段 
+    std::string uploader;
+    int uploader_id;            // 添加uploader_id字段
     std::string upload_time;
-    int uploader_id;
+    std::string uploaded_at;    // 添加uploaded_at字段
     std::string category;  // "video", "document", "image", "other"
     int download_count;
     bool is_public;
@@ -33,9 +36,11 @@ struct FileInfo {
 // 会话信息结构
 struct Session {
     std::string session_id;
-    int user_id;
+    int user_id;                // 添加user_id字段
+    std::string username;
+    std::string role;
     std::string created_at;
-    std::string expires_at;
+    std::string expires_at;     // 添加expires_at字段
 };
 
 /**
@@ -107,7 +112,8 @@ public:
 
     // === 会话管理 ===
     // 创建会话
-    bool createSession(const std::string& session_id, int user_id, int expires_hours = 24);
+    bool createSession(const std::string& session_id, const std::string& username, const std::string& role);
+    bool createSession(const std::string& session_id, int user_id, int expires_hours);  // 重载版本
     
     // 验证会话
     Session* validateSession(const std::string& session_id);
@@ -121,12 +127,33 @@ public:
     // === 统计功能 ===
     // 获取文件总数
     int getTotalFileCount();
+    int getTotalFileCount(const std::string& category);  // 支持按分类统计
     
     // 获取用户总数
     int getTotalUserCount();
+    int getUserCount();      // 别名方法
     
     // 获取存储空间使用情况
     long getTotalStorageUsed();
+    
+    // === 源码中额外需要的方法 ===
+    std::string generateSessionId();
+    void cleanupExpiredSessions();
+    int addFileRecord(const std::string& filename, const std::string& filepath,
+                     const std::string& file_type, long file_size, const std::string& uploader, int uploader_id);
+    std::vector<FileInfo> getFiles(int limit, int offset, const std::string& category);
+    FileInfo getFileByName(const std::string& filename);
+    int getFileCount();
+    long getTotalFileSize();
+    
+    // 用于main.cpp的方法别名
+    bool verify_password(const std::string& username, const std::string& password);
+    User get_user(const std::string& username);
+    bool create_session(const std::string& session_id, const std::string& username, const std::string& role);
+    Session get_session(const std::string& session_id);
+    bool create_user(const std::string& username, const std::string& password, const std::string& role = "user");
+    std::vector<FileInfo> get_files(int page, int limit, const std::string& category);
+    int get_total_files(const std::string& category);
 
 private:
     sqlite3* db_;
@@ -152,6 +179,4 @@ private:
     
     // 计算过期时间
     std::string getExpirationTime(int hours);
-};
-
-#endif // DATABASE_H 
+}; 

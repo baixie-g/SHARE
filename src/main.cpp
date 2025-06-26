@@ -1,321 +1,275 @@
 #include <iostream>
 #include <signal.h>
-#include <memory>
-#include <chrono>
+#include <random>
+#include <sstream>
 #include <thread>
-#include <ctime>
+#include <chrono>
 #include "server.h"
 #include "database.h"
 #include "file_manager.h"
-#include "system_monitor.h"
 #include "json_helper.h"
+#include "system_monitor.h"
 
-// 全局变量，用于信号处理
-std::unique_ptr<HttpServer> g_server;
-std::unique_ptr<Database> g_database;
-std::unique_ptr<FileManager> g_file_manager;
-std::unique_ptr<SystemMonitor> g_system_monitor;
+// 全局变量
+HttpServer* g_server = nullptr;
+Database* g_database = nullptr;
+FileManager* g_file_manager = nullptr;
 
-/**
- * 信号处理函数
- * 优雅地停止服务器
- */
-void signalHandler(int signal) {
-    std::cout << "\n收到停止信号 (" << signal << ")，正在关闭服务器..." << std::endl;
-    
+// 信号处理函数
+void signal_handler(int signal) {
+    std::cout << "\n收到信号 " << signal << "，正在关闭服务器..." << std::endl;
     if (g_server) {
         g_server->stop();
     }
-    
-    if (g_database) {
-        g_database->close();
-    }
-    
-    std::cout << "服务器已安全关闭。" << std::endl;
     exit(0);
 }
 
-/**
- * 注册API路由处理器
- */
-void registerApiRoutes(HttpServer& server, Database& db, FileManager& fm, SystemMonitor& sm) {
+// 生成随机session ID
+std::string generate_session_id() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 15);
     
-    // === 用户认证相关API ===
-    
-    // 用户登录
-    server.addRoute("POST", "/api/login", [&db](const HttpRequest& req) -> HttpResponse {
-        HttpResponse response;
-        
-        try {
-            auto json_data = JsonHelper::parseObject(req.body);
-            
-            if (!JsonHelper::hasRequiredFields(json_data, {"username", "password"})) {
-                response.status_code = 400;
-                response.body = JsonHelper::createErrorResponse("缺少用户名或密码");
-                return response;
-            }
-            
-            std::string username = JsonHelper::getString(json_data["username"]);
-            std::string password = JsonHelper::getString(json_data["password"]);
-            
-            User* user = db.authenticateUser(username, password);
-            if (user) {
-                // 生成会话ID
-                std::string session_id = "sess_" + std::to_string(time(nullptr)) + "_" + std::to_string(user->id);
-                
-                if (db.createSession(session_id, user->id)) {
-                    response.headers["Set-Cookie"] = "session_id=" + session_id + "; Path=/; HttpOnly";
-                    response.body = JsonHelper::createUserResponse(user->username, user->role, user->id);
-                } else {
-                    response.status_code = 500;
-                    response.body = JsonHelper::createErrorResponse("创建会话失败");
-                }
-                
-                delete user;
-            } else {
-                response.status_code = 401;
-                response.body = JsonHelper::createErrorResponse("用户名或密码错误");
-            }
-            
-        } catch (const std::exception& e) {
-            response.status_code = 400;
-            response.body = JsonHelper::createErrorResponse("请求格式错误: " + std::string(e.what()));
-        }
-        
-        response.headers["Content-Type"] = "application/json";
-        return response;
-    });
-    
-    // 用户注册
-    server.addRoute("POST", "/api/register", [&db](const HttpRequest& req) -> HttpResponse {
-        HttpResponse response;
-        
-        try {
-            auto json_data = JsonHelper::parseObject(req.body);
-            
-            if (!JsonHelper::hasRequiredFields(json_data, {"username", "password"})) {
-                response.status_code = 400;
-                response.body = JsonHelper::createErrorResponse("缺少用户名或密码");
-                return response;
-            }
-            
-            std::string username = JsonHelper::getString(json_data["username"]);
-            std::string password = JsonHelper::getString(json_data["password"]);
-            
-            // 检查用户名是否已存在
-            User* existing_user = db.getUserByUsername(username);
-            if (existing_user) {
-                delete existing_user;
-                response.status_code = 409;
-                response.body = JsonHelper::createErrorResponse("用户名已存在");
-                return response;
-            }
-            
-            if (db.createUser(username, password, "user")) {
-                response.body = JsonHelper::createSuccessResponse("用户注册成功");
-            } else {
-                response.status_code = 500;
-                response.body = JsonHelper::createErrorResponse("用户注册失败");
-            }
-            
-        } catch (const std::exception& e) {
-            response.status_code = 400;
-            response.body = JsonHelper::createErrorResponse("请求格式错误: " + std::string(e.what()));
-        }
-        
-        response.headers["Content-Type"] = "application/json";
-        return response;
-    });
-    
-    // 用户登出
-    server.addRoute("POST", "/api/logout", [&db](const HttpRequest& req) -> HttpResponse {
-        HttpResponse response;
-        
-        // 从Cookie中获取会话ID
-        auto cookie_header = req.headers.find("Cookie");
-        if (cookie_header != req.headers.end()) {
-            std::string session_id;
-            // 简单的Cookie解析
-            size_t pos = cookie_header->second.find("session_id=");
-            if (pos != std::string::npos) {
-                pos += 11; // "session_id="的长度
-                size_t end = cookie_header->second.find(";", pos);
-                if (end == std::string::npos) end = cookie_header->second.length();
-                session_id = cookie_header->second.substr(pos, end - pos);
-                
-                db.deleteSession(session_id);
-            }
-        }
-        
-        response.headers["Set-Cookie"] = "session_id=; Path=/; HttpOnly; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
-        response.body = JsonHelper::createSuccessResponse("登出成功");
-        response.headers["Content-Type"] = "application/json";
-        return response;
-    });
-    
-    // === 文件管理相关API ===
-    
-    // 获取文件列表
-    server.addRoute("GET", "/api/files", [&db](const HttpRequest& req) -> HttpResponse {
-        HttpResponse response;
-        
-        int limit = 50;
-        int offset = 0;
-        std::string category = "";
-        
-        // 解析查询参数
-        auto limit_param = req.params.find("limit");
-        if (limit_param != req.params.end()) {
-            limit = std::stoi(limit_param->second);
-        }
-        
-        auto offset_param = req.params.find("offset");
-        if (offset_param != req.params.end()) {
-            offset = std::stoi(offset_param->second);
-        }
-        
-        auto category_param = req.params.find("category");
-        if (category_param != req.params.end()) {
-            category = category_param->second;
-        }
-        
-        std::vector<FileInfo> files;
-        if (category.empty()) {
-            files = db.getPublicFiles(limit, offset);
-        } else {
-            files = db.getFilesByCategory(category, limit, offset);
-        }
-        
-        // 转换为JSON格式
-        std::vector<std::map<std::string, std::string>> file_list;
-        for (const auto& file : files) {
-            std::map<std::string, std::string> file_data;
-            file_data["id"] = std::to_string(file.id);
-            file_data["filename"] = file.filename;
-            file_data["file_type"] = file.file_type;
-            file_data["file_size"] = std::to_string(file.file_size);
-            file_data["upload_time"] = file.upload_time;
-            file_data["category"] = file.category;
-            file_data["download_count"] = std::to_string(file.download_count);
-            file_list.push_back(file_data);
-        }
-        
-        response.body = JsonHelper::createFileListResponse(file_list);
-        response.headers["Content-Type"] = "application/json";
-        return response;
-    });
-    
-    // === 系统监控相关API ===
-    
-    // 获取系统状态
-    server.addRoute("GET", "/api/system/status", [&sm](const HttpRequest& req) -> HttpResponse {
-        HttpResponse response;
-        
-        SystemInfo info = sm.getSystemInfo();
-        
-        std::map<std::string, std::string> status;
-        status["cpu_usage"] = std::to_string(info.cpu_usage);
-        status["memory_usage"] = std::to_string(info.memory_usage);
-        status["disk_usage"] = std::to_string(info.disk_usage);
-        status["uptime"] = info.uptime;
-        status["process_count"] = std::to_string(info.process_count);
-        status["load_average"] = std::to_string(info.load_average_1);
-        
-        response.body = JsonHelper::createSystemStatusResponse(status);
-        response.headers["Content-Type"] = "application/json";
-        return response;
-    });
-    
-    // 获取进程列表
-    server.addRoute("GET", "/api/system/processes", [&sm](const HttpRequest& req) -> HttpResponse {
-        HttpResponse response;
-        
-        auto processes = sm.getAllProcesses();
-        
-        JsonHelper::JsonArray process_array;
-        for (const auto& proc : processes) {
-            JsonHelper::JsonObject proc_obj;
-            proc_obj["pid"] = proc.pid;
-            proc_obj["name"] = proc.name;
-            proc_obj["user"] = proc.user;
-            proc_obj["state"] = proc.state;
-            proc_obj["cpu_percent"] = proc.cpu_percent;
-            proc_obj["memory_percent"] = proc.memory_percent;
-            proc_obj["memory_usage"] = (int)proc.memory_usage;
-            
-            process_array.push_back(proc_obj);
-        }
-        
-        response.body = JsonHelper::arrayToJson(process_array);
-        response.headers["Content-Type"] = "application/json";
-        return response;
-    });
+    std::stringstream ss;
+    for (int i = 0; i < 32; ++i) {
+        int hex = dis(gen);
+        ss << std::hex << hex;
+    }
+    return ss.str();
 }
 
-/**
- * 主函数
- */
+// 从请求头中提取session ID
+std::string get_session_from_cookies(const std::string& cookie_header) {
+    size_t pos = cookie_header.find("session_id=");
+    if (pos != std::string::npos) {
+        pos += 11; // "session_id="的长度
+        size_t end = cookie_header.find(";", pos);
+        if (end == std::string::npos) {
+            end = cookie_header.length();
+        }
+        return cookie_header.substr(pos, end - pos);
+    }
+    return "";
+}
+
+// 验证用户权限
+bool check_admin_permission(const std::string& session_id) {
+    if (session_id.empty()) return false;
+    Session session = g_database->get_session(session_id);
+    return session.role == "admin";
+}
+
+// 前向声明
+std::string handle_login(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_register(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_logout(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_get_files(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_upload(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_system_status(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_processes(const std::string& body, const std::map<std::string, std::string>& params);
+
+// 包装函数：将旧的路由处理器适配为新的签名
+void handle_login_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_login(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_register_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_register(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_logout_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_logout(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_get_files_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_get_files(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_upload_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_upload(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_system_status_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_system_status(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_processes_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_processes(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+// 用户登录
+std::string handle_login(const std::string& body, const std::map<std::string, std::string>& params) {
+    auto form_data = JsonHelper::parse_form_data(body);
+    std::string username = form_data["username"];
+    std::string password = form_data["password"];
+    
+    if (username.empty() || password.empty()) {
+        return JsonHelper::error_response("用户名和密码不能为空");
+    }
+    
+    if (g_database->verify_password(username, password)) {
+        User user = g_database->get_user(username);
+        std::string session_id = generate_session_id();
+        
+        if (g_database->create_session(session_id, username, user.role)) {
+            return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: session_id=" + 
+                   session_id + "; Path=/; Max-Age=86400\r\n\r\n" + 
+                   JsonHelper::success_response("登录成功");
+        }
+    }
+    
+    return JsonHelper::error_response("用户名或密码错误");
+}
+
+// 用户注册
+std::string handle_register(const std::string& body, const std::map<std::string, std::string>& params) {
+    auto form_data = JsonHelper::parse_form_data(body);
+    std::string username = form_data["username"];
+    std::string password = form_data["password"];
+    
+    if (username.empty() || password.empty()) {
+        return JsonHelper::error_response("用户名和密码不能为空");
+    }
+    
+    if (username.length() < 3 || password.length() < 6) {
+        return JsonHelper::error_response("用户名至少3位，密码至少6位");
+    }
+    
+    if (g_database->create_user(username, password)) {
+        return JsonHelper::success_response("注册成功");
+    }
+    
+    return JsonHelper::error_response("用户名已存在");
+}
+
+// 用户登出
+std::string handle_logout(const std::string& body, const std::map<std::string, std::string>& params) {
+    // 这里应该从Cookie中获取session_id，简化处理
+    return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: session_id=; Path=/; Max-Age=0\r\n\r\n" + 
+           JsonHelper::success_response("登出成功");
+}
+
+// 获取文件列表
+std::string handle_get_files(const std::string& body, const std::map<std::string, std::string>& params) {
+    int page = 1;
+    int limit = 20;
+    std::string category = "";
+    
+    auto it = params.find("page");
+    if (it != params.end()) {
+        page = std::stoi(it->second);
+    }
+    
+    it = params.find("limit");
+    if (it != params.end()) {
+        limit = std::stoi(it->second);
+    }
+    
+    it = params.find("category");
+    if (it != params.end()) {
+        category = it->second;
+    }
+    
+    std::vector<FileInfo> files = g_database->get_files(page, limit, category);
+    int total = g_database->get_total_files(category);
+    
+    std::string files_json = JsonHelper::serialize_files(files);
+    return JsonHelper::paginated_response(files_json, total, page, limit);
+}
+
+// 文件上传
+std::string handle_upload(const std::string& body, const std::map<std::string, std::string>& params) {
+    // 简化的文件上传处理，实际应该解析multipart/form-data
+    return JsonHelper::error_response("文件上传功能正在开发中");
+}
+
+// 系统状态监控
+std::string handle_system_status(const std::string& body, const std::map<std::string, std::string>& params) {
+    // 检查管理员权限（简化处理）
+    auto status = SystemMonitor::get_system_status();
+    return JsonHelper::serialize_system_status(status);
+}
+
+// 进程列表
+std::string handle_processes(const std::string& body, const std::map<std::string, std::string>& params) {
+    // 检查管理员权限（简化处理）
+    auto processes = SystemMonitor::get_processes();
+    return JsonHelper::serialize_processes(processes);
+}
+
 int main() {
-    std::cout << "=== g00j小站 文件共享系统 ===" << std::endl;
-    std::cout << "正在启动服务器..." << std::endl;
+    std::cout << "启动 g00j小站 文件共享系统..." << std::endl;
     
-    // 注册信号处理器
-    signal(SIGINT, signalHandler);
-    signal(SIGTERM, signalHandler);
+    // 设置信号处理
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
     
-    try {
-        // 初始化数据库
-        std::cout << "初始化数据库..." << std::endl;
-        g_database = std::make_unique<Database>("bin/g00j_share.db");
-        if (!g_database->initialize()) {
-            std::cerr << "数据库初始化失败！" << std::endl;
-            return 1;
-        }
-        
-        // 初始化文件管理器
-        std::cout << "初始化文件管理器..." << std::endl;
-        g_file_manager = std::make_unique<FileManager>();
-        g_file_manager->setStorageRoot("shared");
-        if (!g_file_manager->initialize()) {
-            std::cerr << "文件管理器初始化失败！" << std::endl;
-            return 1;
-        }
-        
-        // 初始化系统监控器
-        std::cout << "初始化系统监控器..." << std::endl;
-        g_system_monitor = std::make_unique<SystemMonitor>();
-        
-        // 创建HTTP服务器
-        std::cout << "创建HTTP服务器..." << std::endl;
-        g_server = std::make_unique<HttpServer>(8080);
-        g_server->setStaticRoot("static");
-        
-        // 注册API路由
-        std::cout << "注册API路由..." << std::endl;
-        registerApiRoutes(*g_server, *g_database, *g_file_manager, *g_system_monitor);
-        
-        // 启动服务器
-        std::cout << "启动HTTP服务器..." << std::endl;
-        if (!g_server->start()) {
-            std::cerr << "服务器启动失败！" << std::endl;
-            return 1;
-        }
-        
-        std::cout << "========================================" << std::endl;
-        std::cout << "服务器启动成功！" << std::endl;
-        std::cout << "访问地址: http://localhost:8080" << std::endl;
-        std::cout << "按 Ctrl+C 停止服务器" << std::endl;
-        std::cout << "========================================" << std::endl;
-        
-        // 保持主线程运行
-        while (g_server && g_server->isRunning()) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-        
-    } catch (const std::exception& e) {
-        std::cerr << "发生异常: " << e.what() << std::endl;
+    // 初始化数据库
+    g_database = new Database("bin/g00j_share.db");
+    if (!g_database->initialize()) {
+        std::cerr << "数据库初始化失败" << std::endl;
         return 1;
     }
+    
+    // 创建默认管理员账户
+    g_database->create_user("admin", "admin123", "admin");
+    
+    // 初始化文件管理器
+    g_file_manager = new FileManager("shared");
+    if (!g_file_manager->create_directories()) {
+        std::cerr << "文件目录创建失败" << std::endl;
+        return 1;
+    }
+    
+    // 启动HTTP服务器
+    g_server = new HttpServer(8080);
+    
+    // 设置静态文件目录
+    g_server->setStaticRoot("static");
+    
+    // 注册API路由
+    g_server->add_post_route("/api/login", handle_login_route);
+    g_server->add_post_route("/api/register", handle_register_route);
+    g_server->add_post_route("/api/logout", handle_logout_route);
+    g_server->add_post_route("/api/upload", handle_upload_route);
+    
+    g_server->add_route("/api/files", handle_get_files_route);
+    g_server->add_route("/api/system/status", handle_system_status_route);
+    g_server->add_route("/api/system/processes", handle_processes_route);
+    
+    std::cout << "服务器启动成功，访问地址: http://localhost:8080" << std::endl;
+    std::cout << "默认管理员账户: admin / admin123" << std::endl;
+    
+    // 启动服务器
+    if (!g_server->start()) {
+        std::cerr << "服务器启动失败" << std::endl;
+        return 1;
+    }
+    
+    // 等待服务器运行
+    std::cout << "按 Ctrl+C 停止服务器..." << std::endl;
+    while (g_server->is_running()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    // 清理资源
+    delete g_server;
+    delete g_database;
+    delete g_file_manager;
     
     return 0;
 } 

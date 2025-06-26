@@ -4,6 +4,7 @@
 #include <sstream>
 #include <thread>
 #include <chrono>
+#include <algorithm>
 #include "server.h"
 #include "database.h"
 #include "file_manager.h"
@@ -113,26 +114,29 @@ void handle_processes_route(const HttpRequest& request, HttpResponse& response) 
 
 // 用户登录
 std::string handle_login(const std::string& body, const std::map<std::string, std::string>& params) {
-    auto form_data = JsonHelper::parse_form_data(body);
-    std::string username = form_data["username"];
-    std::string password = form_data["password"];
-    
-    if (username.empty() || password.empty()) {
-        return JsonHelper::error_response("用户名和密码不能为空");
-    }
-    
-    if (g_database->verify_password(username, password)) {
-        User user = g_database->get_user(username);
-        std::string session_id = generate_session_id();
+    try {
+        auto form_data = JsonHelper::parse_form_data(body);
+        std::string username = form_data["username"];
+        std::string password = form_data["password"];
         
-        if (g_database->create_session(session_id, username, user.role)) {
-            return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: session_id=" + 
-                   session_id + "; Path=/; Max-Age=86400\r\n\r\n" + 
-                   JsonHelper::success_response("登录成功");
+        if (username.empty() || password.empty()) {
+            return JsonHelper::error_response("用户名和密码不能为空");
         }
+        
+        if (g_database->verify_password(username, password)) {
+            User user = g_database->get_user(username);
+            std::string session_id = generate_session_id();
+            
+            if (g_database->create_session(session_id, username, user.role)) {
+                return JsonHelper::success_response("登录成功");
+            }
+        }
+        
+        return JsonHelper::error_response("用户名或密码错误");
+        
+    } catch (const std::exception& e) {
+        return JsonHelper::error_response("服务器内部错误");
     }
-    
-    return JsonHelper::error_response("用户名或密码错误");
 }
 
 // 用户注册

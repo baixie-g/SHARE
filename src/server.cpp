@@ -155,29 +155,47 @@ HttpRequest HttpServer::parse_request(const std::string& raw_request) {
         request.path = url_decode(request.path);
     }
     
-    while (std::getline(iss, line) && line != "\r") {
+    // 解析头部
+    bool headers_done = false;
+    while (std::getline(iss, line) && !headers_done) {
+        // 移除行尾的\r
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        
+        // 空行表示头部结束
+        if (line.empty()) {
+            headers_done = true;
+            break;
+        }
+        
         size_t colon_pos = line.find(':');
         if (colon_pos != std::string::npos) {
             std::string name = line.substr(0, colon_pos);
             std::string value = line.substr(colon_pos + 1);
             
             value.erase(0, value.find_first_not_of(' '));
-            if (!value.empty() && value.back() == '\r') {
-                value.pop_back();
-            }
             
             std::transform(name.begin(), name.end(), name.begin(), ::tolower);
             request.headers[name] = value;
         }
     }
     
+    // 解析body - 读取剩余的所有内容
     std::string body;
+    std::string remaining;
     while (std::getline(iss, line)) {
-        body += line + "\n";
+        if (!body.empty()) {
+            body += "\n";
+        }
+        body += line;
     }
-    if (!body.empty() && body.back() == '\n') {
+    
+    // 移除末尾的\r
+    if (!body.empty() && body.back() == '\r') {
         body.pop_back();
     }
+    
     request.body = body;
     
     return request;

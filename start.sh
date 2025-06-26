@@ -6,7 +6,7 @@ echo "=== g00j小站 文件共享系统 ==="
 echo "正在启动服务器..."
 
 # 检查可执行文件是否存在
-if [ ! -f "./bin/g00j_file_share" ]; then
+if [ ! -f "./build/bin/g00j_file_share" ]; then
     echo "错误: 可执行文件不存在"
     echo "请先运行构建脚本: ./build.sh"
     exit 1
@@ -152,4 +152,4 @@ echo "按 Ctrl+C 停止服务器"
 echo
 
 # 启动服务器
-./bin/g00j_file_share 
+./build/bin/g00j_file_share 

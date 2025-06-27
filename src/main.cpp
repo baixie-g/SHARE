@@ -75,6 +75,7 @@ std::string handle_processes(const std::string& body, const std::map<std::string
 std::string handle_get_users(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_delete_user(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_delete_file(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_kill_process(const std::string& body, const std::map<std::string, std::string>& params);
 
 // 包装函数：将旧的路由处理器适配为新的签名
 void handle_login_route(const HttpRequest& request, HttpResponse& response) {
@@ -514,6 +515,27 @@ std::string handle_delete_file(const std::string& body, const std::map<std::stri
     }
 }
 
+// 管理员功能 - 终止进程
+std::string handle_kill_process(const std::string& body, const std::map<std::string, std::string>& params) {
+    auto it = params.find("pid");
+    if (it == params.end()) {
+        return JsonHelper::error_response("Missing process PID");
+    }
+    
+    int pid = std::stoi(it->second);
+    
+    // 保护关键系统进程
+    if (pid <= 3) {  // 保护 init, kthreadd 等核心进程
+        return JsonHelper::error_response("Cannot kill system process");
+    }
+    
+    if (SystemMonitor::kill_process(pid)) {
+        return JsonHelper::success_response("Process terminated successfully");
+    } else {
+        return JsonHelper::error_response("Failed to terminate process");
+    }
+}
+
 // 包装函数
 void handle_get_users_route(const HttpRequest& request, HttpResponse& response) {
     std::string result = handle_get_users(request.body, request.params);
@@ -533,6 +555,14 @@ void handle_delete_file_route(const HttpRequest& request, HttpResponse& response
     // 解析表单数据
     auto form_data = JsonHelper::parse_form_data(request.body);
     std::string result = handle_delete_file(request.body, form_data);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_kill_process_route(const HttpRequest& request, HttpResponse& response) {
+    // 解析表单数据
+    auto form_data = JsonHelper::parse_form_data(request.body);
+    std::string result = handle_kill_process(request.body, form_data);
     response.body = result;
     response.headers["Content-Type"] = "application/json";
 }
@@ -583,6 +613,7 @@ int main() {
     g_server->add_route("/api/admin/users", handle_get_users_route);
     g_server->add_post_route("/api/admin/delete-user", handle_delete_user_route);
     g_server->add_post_route("/api/admin/delete-file", handle_delete_file_route);
+    g_server->add_post_route("/api/admin/kill-process", handle_kill_process_route);
     
     std::cout << "服务器启动成功，访问地址: http://localhost:8080" << std::endl;
     std::cout << "默认管理员账户: admin / admin123" << std::endl;

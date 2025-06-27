@@ -26,6 +26,9 @@ createApp({
             // 系统监控
             systemStatus: {},
             processes: [],
+            processFilter: '',
+            processSortBy: 'cpu',
+            sortOrder: 'desc',
             
             // 模态框状态
             showLoginModal: false,
@@ -346,10 +349,95 @@ createApp({
                 const response = await axios.get('/api/system/processes');
                 if (response.data.success) {
                     this.processes = response.data.data;
+                    this.sortProcesses();
                 }
             } catch (error) {
                 this.showMessage('加载进程列表失败', 'error');
             }
+        },
+        
+        sortProcesses() {
+            this.processes.sort((a, b) => {
+                let valA, valB;
+                
+                switch (this.processSortBy) {
+                    case 'cpu':
+                        valA = parseFloat(a.cpu);
+                        valB = parseFloat(b.cpu);
+                        return valB - valA; // 降序
+                    case 'memory':
+                        valA = parseFloat(a.memory);
+                        valB = parseFloat(b.memory);
+                        return valB - valA; // 降序
+                    case 'name':
+                        valA = a.name.toLowerCase();
+                        valB = b.name.toLowerCase();
+                        return valA.localeCompare(valB); // 升序
+                    case 'pid':
+                        valA = parseInt(a.pid);
+                        valB = parseInt(b.pid);
+                        return valA - valB; // 升序
+                    case 'user':
+                        valA = a.user.toLowerCase();
+                        valB = b.user.toLowerCase();
+                        return valA.localeCompare(valB); // 升序
+                    default:
+                        return 0;
+                }
+            });
+        },
+        
+        async killProcess(pid) {
+            if (!confirm(`确定要终止进程 ${pid} 吗？`)) {
+                return;
+            }
+            
+            try {
+                const formData = new URLSearchParams();
+                formData.append('pid', pid);
+                
+                const response = await axios.post('/api/admin/kill-process', formData, {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+                });
+                
+                if (response.data.success) {
+                    this.showMessage('进程终止成功', 'success');
+                    await this.loadProcesses();
+                } else {
+                    this.showMessage(response.data.message || '终止进程失败', 'error');
+                }
+            } catch (error) {
+                this.showMessage('终止进程失败', 'error');
+            }
+        },
+        
+        // 进程工具函数
+        getCpuClass(cpu) {
+            const usage = parseFloat(cpu);
+            if (usage > 80) return 'high';
+            if (usage > 50) return 'medium';
+            if (usage > 20) return 'low';
+            return 'minimal';
+        },
+        
+        getMemoryClass(memory) {
+            const usage = parseFloat(memory);
+            if (usage > 80) return 'high';
+            if (usage > 50) return 'medium';
+            if (usage > 20) return 'low';
+            return 'minimal';
+        },
+        
+        formatNumber(num) {
+            const n = parseInt(num);
+            if (n > 1024 * 1024) {
+                return (n / (1024 * 1024)).toFixed(1) + 'G';
+            } else if (n > 1024) {
+                return (n / 1024).toFixed(1) + 'M';
+            }
+            return n.toString();
         },
         
         // 管理面板功能
@@ -493,6 +581,21 @@ createApp({
             setTimeout(() => {
                 this.message = null;
             }, 3000);
+        }
+    },
+    
+    computed: {
+        filteredProcesses() {
+            if (!this.processFilter) {
+                return this.processes;
+            }
+            
+            const filter = this.processFilter.toLowerCase();
+            return this.processes.filter(process => 
+                process.name.toLowerCase().includes(filter) ||
+                process.user.toLowerCase().includes(filter) ||
+                process.pid.includes(filter)
+            );
         }
     },
     

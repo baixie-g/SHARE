@@ -165,20 +165,47 @@
 
                 <div class="processes-section">
                     <h3>🔄 进程列表</h3>
+                    <div class="processes-controls">
+                        <div class="search-bar">
+                            <input v-model="processFilter" type="text" placeholder="🔍 搜索进程名..." class="search-input">
+                        </div>
+                        <div class="sort-controls">
+                            <label>排序方式:</label>
+                            <select v-model="processSortBy" @change="sortProcesses" class="sort-select">
+                                <option value="cpu">CPU使用率 ⬇️</option>
+                                <option value="memory">内存使用率 ⬇️</option>
+                                <option value="name">进程名 ⬆️</option>
+                                <option value="pid">PID ⬆️</option>
+                                <option value="user">用户 ⬆️</option>
+                            </select>
+                        </div>
+                        <button @click="loadProcesses" class="refresh-btn">🔄 刷新</button>
+                    </div>
                     <div class="processes-table">
-                        <div class="table-header">
+                        <div class="table-header process-header">
                             <span>PID</span>
                             <span>进程名</span>
+                            <span>用户</span>
                             <span>状态</span>
+                            <span>CPU%</span>
+                            <span>内存%</span>
+                            <span>内存(KB)</span>
                             <span>操作</span>
                         </div>
-                        <div v-for="process in processes" :key="process.pid" class="table-row">
+                        <div v-for="process in filteredProcesses" :key="process.pid" class="table-row process-row">
                             <span>{{ process.pid }}</span>
-                            <span>{{ process.name }}</span>
-                            <span>{{ process.status }}</span>
+                            <span class="process-name">{{ process.name }}</span>
+                            <span>{{ process.user }}</span>
+                            <span :class="['status', process.status.toLowerCase()]">{{ process.status }}</span>
+                            <span :class="['cpu-usage', getCpuClass(process.cpu)]">{{ process.cpu }}%</span>
+                            <span :class="['memory-usage', getMemoryClass(process.memory)]">{{ process.memory }}%</span>
+                            <span>{{ formatNumber(process.memory_kb) }}</span>
                             <span>
                                 <button @click="killProcess(process.pid)" class="danger-btn">❌ 终止</button>
                             </span>
+                        </div>
+                        <div v-if="filteredProcesses.length === 0" class="no-processes">
+                            🔍 没有找到匹配的进程
                         </div>
                     </div>
                 </div>

@@ -27,6 +27,10 @@
                             :class="{'active': currentView === 'monitor'}">
                         📊 系统监控
                     </button>
+                    <button v-if="user && user.role === 'admin'" @click="currentView = 'admin'" 
+                            :class="{'active': currentView === 'admin'}">
+                        ⚙️ 管理面板
+                    </button>
                     <button v-if="!user" @click="showLoginModal = true" class="login-btn">
                         🔑 登录
                     </button>
@@ -179,6 +183,70 @@
                     </div>
                 </div>
             </div>
+
+            <!-- 管理面板视图 -->
+            <div v-if="currentView === 'admin' && user && user.role === 'admin'" class="admin-view">
+                <h2>⚙️ 管理面板</h2>
+                
+                <div class="admin-sections">
+                    <div class="admin-section">
+                        <h3>👥 用户管理</h3>
+                        <div class="admin-table">
+                            <div class="table-header">
+                                <span>ID</span>
+                                <span>用户名</span>
+                                <span>角色</span>
+                                <span>注册时间</span>
+                                <span>状态</span>
+                                <span>操作</span>
+                            </div>
+                            <div v-for="user in adminUsers" :key="user.id" class="table-row">
+                                <span>{{ user.id }}</span>
+                                <span>{{ user.username }}</span>
+                                <span>{{ user.role }}</span>
+                                <span>{{ formatDate(user.created_at) }}</span>
+                                <span>{{ user.active ? '活跃' : '禁用' }}</span>
+                                <span>
+                                    <button v-if="user.id !== 1" @click="deleteUser(user.id)" class="danger-btn">
+                                        🗑️ 删除
+                                    </button>
+                                    <span v-else class="protected-user">系统管理员</span>
+                                </span>
+                            </div>
+                        </div>
+                        <button @click="loadAdminUsers" class="refresh-btn">🔄 刷新用户列表</button>
+                    </div>
+
+                    <div class="admin-section">
+                        <h3>📁 文件管理</h3>
+                        <div class="admin-table">
+                            <div class="table-header">
+                                <span>ID</span>
+                                <span>文件名</span>
+                                <span>分类</span>
+                                <span>大小</span>
+                                <span>上传者</span>
+                                <span>上传时间</span>
+                                <span>操作</span>
+                            </div>
+                            <div v-for="file in adminFiles" :key="file.id" class="table-row">
+                                <span>{{ file.id }}</span>
+                                <span>{{ file.filename }}</span>
+                                <span>{{ file.category }}</span>
+                                <span>{{ formatFileSize(file.size) }}</span>
+                                <span>{{ file.uploader }}</span>
+                                <span>{{ formatDate(file.upload_time) }}</span>
+                                <span>
+                                    <button @click="deleteAdminFile(file.id)" class="danger-btn">
+                                        🗑️ 删除
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                        <button @click="loadAdminFiles" class="refresh-btn">🔄 刷新文件列表</button>
+                    </div>
+                </div>
+            </div>
         </main>
 
         <!-- 登录模态框 -->
@@ -248,6 +316,35 @@
                             <button @click="removeFile(index)" class="remove-btn">❌</button>
                         </div>
                         <button @click="uploadSelectedFiles" class="upload-submit-btn">🚀 开始上传</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 文件预览模态框 -->
+        <div v-if="showPreviewModal" class="modal-overlay" @click="showPreviewModal = false">
+            <div class="modal preview-modal" @click.stop>
+                <div class="modal-header">
+                    <h3>👁️ 文件预览 - {{ previewFile.filename }}</h3>
+                    <button @click="showPreviewModal = false" class="close-btn">✖️</button>
+                </div>
+                <div class="modal-body">
+                    <div v-if="isImageFile(previewFile.filename)" class="image-preview">
+                        <img :src="`/api/download?id=${previewFile.id}`" :alt="previewFile.filename" style="max-width: 100%; max-height: 500px;">
+                    </div>
+                    <div v-else-if="isVideoFile(previewFile.filename)" class="video-preview">
+                        <video controls style="max-width: 100%; max-height: 500px;">
+                            <source :src="`/api/download?id=${previewFile.id}`" :type="previewFile.mime_type">
+                            您的浏览器不支持视频预览
+                        </video>
+                    </div>
+                    <div v-else-if="isTextFile(previewFile.filename)" class="text-preview">
+                        <pre>{{ previewContent }}</pre>
+                    </div>
+                    <div v-else class="unsupported-preview">
+                        <div class="unsupported-icon">📄</div>
+                        <p>{{ previewContent || '此文件类型不支持预览' }}</p>
+                        <button @click="downloadFile(previewFile)" class="download-btn">💾 下载查看</button>
                     </div>
                 </div>
             </div>

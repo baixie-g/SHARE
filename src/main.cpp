@@ -67,6 +67,7 @@ bool check_admin_permission(const std::string& session_id) {
 std::string handle_login(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_register(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_logout(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_user_profile(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_get_files(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_upload(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_system_status(const std::string& body, const std::map<std::string, std::string>& params);
@@ -88,8 +89,16 @@ void handle_register_route(const HttpRequest& request, HttpResponse& response) {
     response.headers["Content-Type"] = "application/json";
 }
 
+void handle_user_profile_route(const HttpRequest& request, HttpResponse& response);
+
 void handle_logout_route(const HttpRequest& request, HttpResponse& response) {
     std::string result = handle_logout(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_user_profile_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_user_profile(request.body, request.headers);
     response.body = result;
     response.headers["Content-Type"] = "application/json";
 }
@@ -142,7 +151,9 @@ std::string handle_login(const std::string& body, const std::map<std::string, st
             std::string session_id = generate_session_id();
             
             if (g_database->create_session(session_id, username, user.role)) {
-                return JsonHelper::success_response("Login successful");
+                // 构建带Cookie的响应
+                std::string response_body = JsonHelper::success_response("Login successful");
+                return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: session_id=" + session_id + "; Path=/; Max-Age=86400\r\n\r\n" + response_body;
             } else {
                 return JsonHelper::error_response("Session creation failed");
             }
@@ -181,6 +192,39 @@ std::string handle_logout(const std::string& body, const std::map<std::string, s
     // 这里应该从Cookie中获取session_id，简化处理
     return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: session_id=; Path=/; Max-Age=0\r\n\r\n" + 
            JsonHelper::success_response("Logout successful");
+}
+
+// 获取用户资料（验证session）
+std::string handle_user_profile(const std::string& body, const std::map<std::string, std::string>& params) {
+    // 从请求头中获取cookie
+    auto cookie_it = params.find("Cookie");
+    if (cookie_it == params.end()) {
+        cookie_it = params.find("cookie");
+    }
+    
+    if (cookie_it == params.end()) {
+        return JsonHelper::error_response("No session found");
+    }
+    
+    std::string session_id = get_session_from_cookies(cookie_it->second);
+    if (session_id.empty()) {
+        return JsonHelper::error_response("Invalid session");
+    }
+    
+    // 验证session并获取用户信息
+    std::string username = g_database->get_session_user(session_id);
+    if (username.empty()) {
+        return JsonHelper::error_response("Session expired");
+    }
+    
+    User user = g_database->get_user(username);
+    if (user.username.empty()) {
+        return JsonHelper::error_response("User not found");
+    }
+    
+    // 返回用户信息
+    std::string user_json = "{\"username\":\"" + user.username + "\",\"role\":\"" + user.role + "\"}";
+    return JsonHelper::data_response(user_json, "User profile retrieved");
 }
 
 // 获取文件列表
@@ -492,6 +536,7 @@ int main() {
     g_server->add_post_route("/api/login", handle_login_route);
     g_server->add_post_route("/api/register", handle_register_route);
     g_server->add_post_route("/api/logout", handle_logout_route);
+    g_server->add_route("/api/user/profile", handle_user_profile_route);
     g_server->add_post_route("/api/upload", handle_upload_route);
     
     g_server->add_route("/api/files", handle_get_files_route);

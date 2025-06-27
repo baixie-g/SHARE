@@ -151,6 +151,7 @@ public:
     User get_user(const std::string& username);
     bool create_session(const std::string& session_id, const std::string& username, const std::string& role);
     Session get_session(const std::string& session_id);
+    std::string get_session_user(const std::string& session_id);
     bool create_user(const std::string& username, const std::string& password, const std::string& role = "user");
     std::vector<FileInfo> get_files(int page, int limit, const std::string& category);
     int get_total_files(const std::string& category);

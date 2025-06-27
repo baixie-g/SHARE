@@ -59,7 +59,16 @@ createApp({
             
             // 统计数据
             totalFiles: 0,
-            onlineUsers: 1
+            onlineUsers: 1,
+            
+            // 管理面板数据
+            adminUsers: [],
+            adminFiles: [],
+            
+            // 预览相关
+            showPreviewModal: false,
+            previewFile: null,
+            previewContent: ''
         };
     },
     
@@ -98,19 +107,26 @@ createApp({
                 });
                 
                 if (response.data.success) {
-                    this.user = response.data.data;
+                    // 设置用户信息
+                    this.user = {
+                        username: this.loginForm.username,
+                        role: this.loginForm.username === 'admin' ? 'admin' : 'user'
+                    };
+                    
                     this.showMessage('登录成功！', 'success');
                     this.showLoginModal = false;
-                    this.showRegisterForm = false;
+                    this.isRegister = false;
+                    
+                    // 清空登录表单
+                    const savedUsername = this.loginForm.username;
                     this.loginForm = { username: '', password: '' };
-                    await this.checkLoginStatus();
                     
                     // 如果是管理员，加载系统状态
                     if (this.user.role === 'admin') {
                         await this.loadSystemStatus();
                     }
                 } else {
-                    this.showMessage(response.data.error || '登录失败', 'error');
+                    this.showMessage(response.data.message || '登录失败', 'error');
                 }
             } catch (error) {
                 this.showMessage('网络错误，请重试', 'error');
@@ -155,22 +171,36 @@ createApp({
         },
         
         async checkLoginStatus() {
-            // 简化的登录状态检查，基于Cookie
+            // 检查是否有session cookie
             const cookies = document.cookie.split(';');
             const sessionCookie = cookies.find(cookie => cookie.trim().startsWith('session_id='));
             
-            if (sessionCookie) {
-                // 模拟用户信息，实际应该从API获取
-                this.user = {
-                    username: 'user',
-                    role: 'user'
-                };
-                
-                // 检查是否是管理员（简化判断）
-                if (this.loginForm.username === 'admin' || sessionCookie.includes('admin')) {
-                    this.user.role = 'admin';
-                    this.user.username = 'admin';
+            if (sessionCookie && sessionCookie.trim() !== 'session_id=') {
+                try {
+                    // 通过API验证session是否有效
+                    const response = await axios.get('/api/user/profile');
+                    if (response.data.success) {
+                        // session有效，恢复用户状态
+                        this.user = response.data.data;
+                        console.log('Session restored for user:', this.user.username);
+                        
+                        // 如果是管理员，加载系统状态
+                        if (this.user.role === 'admin') {
+                            await this.loadSystemStatus();
+                        }
+                    } else {
+                        // session无效，清除cookie
+                        document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                        this.user = null;
+                    }
+                } catch (error) {
+                    // API调用失败，清除session
+                    console.log('Session validation failed:', error.message);
+                    document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                    this.user = null;
                 }
+            } else {
+                this.user = null;
             }
         },
         
@@ -269,13 +299,15 @@ createApp({
             
             if (this.isTextFile(file.filename)) {
                 try {
-                    const response = await axios.get(`/api/download/${file.filename}`, {
+                    const response = await axios.get(`/api/download?id=${file.id}`, {
                         responseType: 'text'
                     });
                     this.previewContent = response.data;
                 } catch (error) {
                     this.previewContent = '无法加载文件内容';
                 }
+            } else {
+                this.previewContent = '此文件类型不支持预览';
             }
         },
         
@@ -316,6 +348,82 @@ createApp({
             }
         },
         
+        // 管理面板功能
+        async loadAdminUsers() {
+            try {
+                const response = await axios.get('/api/admin/users');
+                if (response.data.success) {
+                    this.adminUsers = response.data.data;
+                }
+            } catch (error) {
+                this.showMessage('加载用户列表失败', 'error');
+            }
+        },
+
+        async loadAdminFiles() {
+            try {
+                const response = await axios.get('/api/files?page=1&limit=50');
+                if (response.data.success) {
+                    this.adminFiles = response.data.data;
+                }
+            } catch (error) {
+                this.showMessage('加载文件列表失败', 'error');
+            }
+        },
+
+        async deleteUser(userId) {
+            if (!confirm('确定要删除该用户吗？此操作不可撤销！')) {
+                return;
+            }
+            
+            try {
+                const formData = new URLSearchParams();
+                formData.append('id', userId);
+                
+                const response = await axios.post('/api/admin/delete-user', formData, {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+                });
+                
+                if (response.data.success) {
+                    this.showMessage('用户删除成功', 'success');
+                    await this.loadAdminUsers();
+                } else {
+                    this.showMessage(response.data.message || '删除失败', 'error');
+                }
+            } catch (error) {
+                this.showMessage('删除用户失败', 'error');
+            }
+        },
+
+        async deleteAdminFile(fileId) {
+            if (!confirm('确定要删除该文件吗？此操作不可撤销！')) {
+                return;
+            }
+            
+            try {
+                const formData = new URLSearchParams();
+                formData.append('id', fileId);
+                
+                const response = await axios.post('/api/admin/delete-file', formData, {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+                });
+                
+                if (response.data.success) {
+                    this.showMessage('文件删除成功', 'success');
+                    await this.loadAdminFiles();
+                    await this.loadFiles(); // 刷新普通文件列表
+                } else {
+                    this.showMessage(response.data.message || '删除失败', 'error');
+                }
+            } catch (error) {
+                this.showMessage('删除文件失败', 'error');
+            }
+        },
+
         // 工具函数
         formatFileSize(bytes) {
             if (bytes === 0) return '0 B';
@@ -391,6 +499,9 @@ createApp({
             } else if (newView === 'monitor' && this.user?.role === 'admin') {
                 this.loadSystemStatus();
                 this.loadProcesses();
+            } else if (newView === 'admin' && this.user?.role === 'admin') {
+                this.loadAdminUsers();
+                this.loadAdminFiles();
             }
         },
         

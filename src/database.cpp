@@ -743,4 +743,29 @@ bool Database::addFile(const std::string& filename, const std::string& filepath,
     sqlite3_finalize(stmt);
     
     return rc == SQLITE_DONE;
+}
+
+std::string Database::get_session_user(const std::string& session_id) {
+    const char* sql = "SELECT u.username FROM sessions s "
+                     "JOIN users u ON s.user_id = u.id "
+                     "WHERE s.session_id = ? AND s.expires_at > datetime('now')";
+    sqlite3_stmt* stmt;
+    
+    int rc = sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return "";
+    }
+    
+    sqlite3_bind_text(stmt, 1, session_id.c_str(), -1, SQLITE_STATIC);
+    
+    std::string username;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        if (name) {
+            username = name;
+        }
+    }
+    
+    sqlite3_finalize(stmt);
+    return username;
 } 

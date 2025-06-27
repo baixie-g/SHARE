@@ -78,9 +78,40 @@ std::string handle_delete_file(const std::string& body, const std::map<std::stri
 
 // 包装函数：将旧的路由处理器适配为新的签名
 void handle_login_route(const HttpRequest& request, HttpResponse& response) {
-    std::string result = handle_login(request.body, request.params);
-    response.body = result;
-    response.headers["Content-Type"] = "application/json";
+    // 解析表单数据获取用户名密码
+    auto form_data = JsonHelper::parse_form_data(request.body);
+    std::string username = form_data["username"];
+    std::string password = form_data["password"];
+    
+    if (username.empty() || password.empty()) {
+        response.body = JsonHelper::error_response("Username and password are required");
+        response.headers["Content-Type"] = "application/json";
+        return;
+    }
+    
+    try {
+        bool password_valid = g_database->verify_password(username, password);
+        
+        if (password_valid) {
+            User user = g_database->get_user(username);
+            std::string session_id = generate_session_id();
+            
+            if (g_database->create_session(session_id, username, user.role)) {
+                response.body = JsonHelper::success_response("Login successful");
+                response.headers["Content-Type"] = "application/json";
+                response.headers["Set-Cookie"] = "session_id=" + session_id + "; Path=/; Max-Age=86400";
+            } else {
+                response.body = JsonHelper::error_response("Session creation failed");
+                response.headers["Content-Type"] = "application/json";
+            }
+        } else {
+            response.body = JsonHelper::error_response("Invalid username or password");
+            response.headers["Content-Type"] = "application/json";
+        }
+    } catch (const std::exception& e) {
+        response.body = JsonHelper::error_response("Internal server error");
+        response.headers["Content-Type"] = "application/json";
+    }
 }
 
 void handle_register_route(const HttpRequest& request, HttpResponse& response) {
@@ -151,9 +182,7 @@ std::string handle_login(const std::string& body, const std::map<std::string, st
             std::string session_id = generate_session_id();
             
             if (g_database->create_session(session_id, username, user.role)) {
-                // 构建带Cookie的响应
-                std::string response_body = JsonHelper::success_response("Login successful");
-                return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: session_id=" + session_id + "; Path=/; Max-Age=86400\r\n\r\n" + response_body;
+                return JsonHelper::success_response("Login successful");
             } else {
                 return JsonHelper::error_response("Session creation failed");
             }

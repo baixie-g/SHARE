@@ -73,6 +73,9 @@ createApp({
     },
     
     async created() {
+        // 配置axios以自动处理cookies
+        axios.defaults.withCredentials = true;
+        
         // 检查登录状态
         await this.checkLoginStatus();
         
@@ -103,7 +106,8 @@ createApp({
                 const response = await axios.post('/api/login', formData, {
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded'
-                    }
+                    },
+                    withCredentials: true
                 });
                 
                 if (response.data.success) {

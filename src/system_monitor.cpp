@@ -9,6 +9,10 @@
 #include <iomanip>
 #include <unistd.h>
 #include <cmath>
+#include <cstdlib>
+#include <string>
+#include <vector>
+#include <map>
 
 SystemMonitor::SystemMonitor() : proc_path("/proc") {
 }
@@ -537,12 +541,17 @@ std::vector<std::map<std::string, std::string>> SystemMonitor::get_processes() {
         return processes;
     }
     
-    // 获取系统总内存
+    // 获取系统总内存 (字节转换为KB)
     auto memory_info = get_memory_info();
-    long total_memory_kb = memory_info["total"];
+    long total_memory_kb = memory_info["total"] / 1024;
     
     // 获取CPU时钟节拍
     long clock_ticks = sysconf(_SC_CLK_TCK);
+    if (clock_ticks <= 0) clock_ticks = 100; // 默认值
+    
+    // 获取页面大小
+    long page_size = sysconf(_SC_PAGESIZE);
+    if (page_size <= 0) page_size = 4096; // 默认4KB
     
     // 读取系统运行时间
     std::string uptime_content = read_file_content("/proc/uptime");
@@ -552,6 +561,8 @@ std::vector<std::map<std::string, std::string>> SystemMonitor::get_processes() {
         ss >> system_uptime;
     }
     
+    // 收集所有进程ID并排序，优先处理较大的PID（通常是用户进程）
+    std::vector<int> pids;
     struct dirent* entry;
     while ((entry = readdir(proc_dir)) != nullptr) {
         // 检查是否是数字目录（进程ID）
@@ -559,10 +570,17 @@ std::vector<std::map<std::string, std::string>> SystemMonitor::get_processes() {
         if (name.find_first_not_of("0123456789") != std::string::npos) {
             continue;
         }
-        
-        int pid = std::stoi(name);
-        std::string stat_path = "/proc/" + name + "/stat";
-        std::string status_path = "/proc/" + name + "/status";
+        pids.push_back(std::stoi(name));
+    }
+    
+    // 按PID降序排序，让用户进程（通常PID较大）优先被处理
+    std::sort(pids.begin(), pids.end(), std::greater<int>());
+    
+    for (int pid : pids) {
+        std::string pid_str = std::to_string(pid);
+        std::string stat_path = "/proc/" + pid_str + "/stat";
+        std::string status_path = "/proc/" + pid_str + "/status";
+        std::string cmdline_path = "/proc/" + pid_str + "/cmdline";
         
         std::string stat_content = read_file_content(stat_path);
         std::string status_content = read_file_content(status_path);
@@ -571,107 +589,172 @@ std::vector<std::map<std::string, std::string>> SystemMonitor::get_processes() {
             continue;
         }
         
-        // 解析/proc/[pid]/stat
-        std::istringstream stat_ss(stat_content);
-        std::vector<std::string> stat_fields;
-        std::string field;
+        // 更准确地解析/proc/[pid]/stat - 处理进程名中的空格
+        std::string process_name;
+        std::string state_str;
+        long utime = 0, stime = 0, starttime = 0, vsize = 0, rss = 0;
         
-        while (stat_ss >> field) {
-            stat_fields.push_back(field);
+        // 找到进程名（在括号中）
+        size_t start_paren = stat_content.find('(');
+        size_t end_paren = stat_content.rfind(')'); // 使用rfind处理进程名中的括号
+        
+        if (start_paren != std::string::npos && end_paren != std::string::npos && end_paren > start_paren) {
+            process_name = stat_content.substr(start_paren + 1, end_paren - start_paren - 1);
+            
+            // 解析括号后的字段
+            std::string remaining = stat_content.substr(end_paren + 1);
+            std::istringstream iss(remaining);
+            std::vector<std::string> fields;
+            std::string field;
+            
+            while (iss >> field) {
+                fields.push_back(field);
+            }
+            
+            if (fields.size() >= 22) {
+                state_str = fields[0];                    // 字段3：状态
+                utime = std::stol(fields[11]);           // 字段14：用户时间
+                stime = std::stol(fields[12]);           // 字段15：系统时间
+                starttime = std::stol(fields[19]);       // 字段22：启动时间
+                vsize = std::stol(fields[20]);           // 字段23：虚拟内存
+                rss = std::stol(fields[21]);             // 字段24：物理内存页数
+            }
         }
         
-        if (stat_fields.size() < 24) {
-            continue;
+        if (process_name.empty()) {
+            continue; // 解析失败，跳过
         }
-        
-        // 提取关键信息
-        std::string process_name = stat_fields[1];
-        // 移除进程名的括号
-        if (process_name.front() == '(' && process_name.back() == ')') {
-            process_name = process_name.substr(1, process_name.length() - 2);
-        }
-        
-        char state = stat_fields[2][0];
-        long utime = std::stol(stat_fields[13]);  // 用户模式时间
-        long stime = std::stol(stat_fields[14]);  // 内核模式时间
-        long starttime = std::stol(stat_fields[21]); // 进程启动时间
-        long vsize = std::stol(stat_fields[22]);  // 虚拟内存大小（字节）
-        long rss = std::stol(stat_fields[23]);    // 物理内存页数
         
         // 计算CPU使用率
-        long total_time = utime + stime;
-        double process_uptime = system_uptime - (starttime / clock_ticks);
         double cpu_percent = 0.0;
-        if (process_uptime > 0) {
-            cpu_percent = (total_time / clock_ticks) / process_uptime * 100.0;
+        if (system_uptime > 0) {
+            double process_start_time = (double)starttime / clock_ticks;
+            double process_uptime = system_uptime - process_start_time;
+            
+            if (process_uptime > 0) {
+                double total_cpu_time = (double)(utime + stime) / clock_ticks;
+                cpu_percent = (total_cpu_time / process_uptime) * 100.0;
+                
+                // 限制CPU使用率在合理范围内
+                if (cpu_percent > 100.0) cpu_percent = 100.0;
+                if (cpu_percent < 0.0) cpu_percent = 0.0;
+            }
         }
         
-        // 计算内存使用率
-        long memory_kb = rss * 4; // 假设页面大小为4KB
+        // 计算内存使用（KB）
+        long memory_kb = (rss * page_size) / 1024;
         double memory_percent = 0.0;
-        if (total_memory_kb > 0) {
+        if (total_memory_kb > 0 && memory_kb > 0) {
             memory_percent = (double)memory_kb / total_memory_kb * 100.0;
+            if (memory_percent > 100.0) memory_percent = 100.0;
         }
         
-        // 获取用户信息（从status文件）
+        // 获取用户信息
         std::string user = "unknown";
         if (!status_content.empty()) {
             std::istringstream status_ss(status_content);
             std::string line;
             while (std::getline(status_ss, line)) {
                 if (line.find("Uid:") == 0) {
+                    // 解析 "Uid: real effective saved filesystem"
                     std::istringstream uid_ss(line);
                     std::string label;
-                    int uid;
-                    uid_ss >> label >> uid;
+                    int real_uid;
+                    uid_ss >> label >> real_uid;
                     
-                    // 简化：常见UID映射
-                    if (uid == 0) user = "root";
-                    else if (uid == 1000) user = "user";
-                    else user = std::to_string(uid);
+                    // 简化的UID到用户名映射
+                    if (real_uid == 0) {
+                        user = "root";
+                    } else if (real_uid >= 1000 && real_uid < 2000) {
+                        user = "user";
+                    } else if (real_uid < 1000) {
+                        user = "system";
+                    } else {
+                        user = "uid:" + std::to_string(real_uid);
+                    }
                     break;
                 }
             }
         }
         
-        // 状态字符串映射
-        std::string status_str;
-        switch (state) {
-            case 'R': status_str = "Running"; break;
-            case 'S': status_str = "Sleeping"; break;
-            case 'D': status_str = "Waiting"; break;
-            case 'Z': status_str = "Zombie"; break;
-            case 'T': status_str = "Stopped"; break;
-            default: status_str = "Unknown"; break;
+        // 状态字符串映射 - 更完整的映射
+        std::string status_display;
+        if (!state_str.empty()) {
+            char state = state_str[0];
+            switch (state) {
+                case 'R': status_display = "Running"; break;
+                case 'S': status_display = "Sleeping"; break;
+                case 'D': status_display = "Waiting"; break;
+                case 'Z': status_display = "Zombie"; break;
+                case 'T': status_display = "Stopped"; break;
+                case 't': status_display = "Tracing"; break;
+                case 'W': status_display = "Paging"; break;
+                case 'X': status_display = "Dead"; break;
+                case 'x': status_display = "Dead"; break;
+                case 'K': status_display = "Wakekill"; break;
+                case 'P': status_display = "Parked"; break;
+                case 'I': status_display = "Idle"; break;
+                default: 
+                    status_display = "State:" + std::string(1, state);
+                    break;
+            }
+        } else {
+            status_display = "Unknown";
         }
         
+        // 创建进程信息
         std::map<std::string, std::string> process;
         process["pid"] = std::to_string(pid);
         process["name"] = process_name;
         process["user"] = user;
-        process["status"] = status_str;
-        process["cpu"] = std::to_string(std::round(cpu_percent * 10) / 10.0);
-        process["memory"] = std::to_string(std::round(memory_percent * 10) / 10.0);
-        process["memory_kb"] = std::to_string(memory_kb);
-        process["vsize"] = std::to_string(vsize / 1024); // 转换为KB
+        process["status"] = status_display;
+        
+        // 格式化数值，保留合理的精度
+        std::ostringstream cpu_ss, mem_ss, mem_kb_ss, vsize_ss;
+        cpu_ss << std::fixed << std::setprecision(1) << cpu_percent;
+        mem_ss << std::fixed << std::setprecision(1) << memory_percent;
+        mem_kb_ss << memory_kb;
+        vsize_ss << (vsize / 1024); // 转换为KB
+        
+        process["cpu"] = cpu_ss.str();
+        process["memory"] = mem_ss.str();
+        process["memory_kb"] = mem_kb_ss.str();
+        process["vsize"] = vsize_ss.str();
         
         processes.push_back(process);
         
-        // 限制返回的进程数量，但增加到100个
-        if (processes.size() >= 100) {
+        // 限制返回的进程数量，但优先保留有意义的进程
+        if (processes.size() >= 150) {
             break;
         }
     }
     
     closedir(proc_dir);
     
-    // 按CPU使用率降序排序
+    // 智能排序：优先显示有意义的进程
     std::sort(processes.begin(), processes.end(), 
               [](const std::map<std::string, std::string>& a, 
                  const std::map<std::string, std::string>& b) {
                   double cpu_a = std::stod(a.at("cpu"));
                   double cpu_b = std::stod(b.at("cpu"));
-                  return cpu_a > cpu_b;
+                  long mem_a = std::stol(a.at("memory_kb"));
+                  long mem_b = std::stol(b.at("memory_kb"));
+                  
+                  // 计算进程"重要性"分数
+                  double score_a = cpu_a * 10 + (mem_a > 0 ? std::log(mem_a + 1) : 0);
+                  double score_b = cpu_b * 10 + (mem_b > 0 ? std::log(mem_b + 1) : 0);
+                  
+                  if (std::abs(score_a - score_b) > 0.1) {
+                      return score_a > score_b;
+                  }
+                  
+                  // 分数相同时按CPU排序
+                  if (std::abs(cpu_a - cpu_b) > 0.01) {
+                      return cpu_a > cpu_b;
+                  }
+                  
+                  // CPU相同时按内存排序
+                  return mem_a > mem_b;
               });
     
     return processes;

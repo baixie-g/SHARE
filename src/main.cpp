@@ -397,14 +397,16 @@ std::string handle_upload(const std::string& body, const std::map<std::string, s
 std::string handle_system_status(const std::string& body, const std::map<std::string, std::string>& params) {
     // 检查管理员权限（简化处理）
     auto status = SystemMonitor::get_system_status();
-    return JsonHelper::serialize_system_status(status);
+    std::string status_json = JsonHelper::serialize_system_status(status);
+    return JsonHelper::data_response(status_json, "System status retrieved");
 }
 
 // 进程列表
 std::string handle_processes(const std::string& body, const std::map<std::string, std::string>& params) {
     // 检查管理员权限（简化处理）
     auto processes = SystemMonitor::get_processes();
-    return JsonHelper::serialize_processes(processes);
+    std::string processes_json = JsonHelper::serialize_processes(processes);
+    return JsonHelper::data_response(processes_json, "Processes retrieved");
 }
 
 // 文件下载
@@ -520,13 +522,17 @@ void handle_get_users_route(const HttpRequest& request, HttpResponse& response) 
 }
 
 void handle_delete_user_route(const HttpRequest& request, HttpResponse& response) {
-    std::string result = handle_delete_user(request.body, request.params);
+    // 解析表单数据
+    auto form_data = JsonHelper::parse_form_data(request.body);
+    std::string result = handle_delete_user(request.body, form_data);
     response.body = result;
     response.headers["Content-Type"] = "application/json";
 }
 
 void handle_delete_file_route(const HttpRequest& request, HttpResponse& response) {
-    std::string result = handle_delete_file(request.body, request.params);
+    // 解析表单数据
+    auto form_data = JsonHelper::parse_form_data(request.body);
+    std::string result = handle_delete_file(request.body, form_data);
     response.body = result;
     response.headers["Content-Type"] = "application/json";
 }

@@ -325,26 +325,26 @@
         <div v-if="showPreviewModal" class="modal-overlay" @click="showPreviewModal = false">
             <div class="modal preview-modal" @click.stop>
                 <div class="modal-header">
-                    <h3>👁️ 文件预览 - {{ previewFile.filename }}</h3>
+                    <h3>👁️ 文件预览 - {{ previewFileData.filename }}</h3>
                     <button @click="showPreviewModal = false" class="close-btn">✖️</button>
                 </div>
                 <div class="modal-body">
-                    <div v-if="isImageFile(previewFile.filename)" class="image-preview">
-                        <img :src="`/api/download?id=${previewFile.id}`" :alt="previewFile.filename" style="max-width: 100%; max-height: 500px;">
+                    <div v-if="isImageFile(previewFileData.filename)" class="image-preview">
+                        <img :src="`/api/download?id=${previewFileData.id}`" :alt="previewFileData.filename" style="max-width: 100%; max-height: 500px;">
                     </div>
-                    <div v-else-if="isVideoFile(previewFile.filename)" class="video-preview">
+                    <div v-else-if="isVideoFile(previewFileData.filename)" class="video-preview">
                         <video controls style="max-width: 100%; max-height: 500px;">
-                            <source :src="`/api/download?id=${previewFile.id}`" :type="previewFile.mime_type">
+                            <source :src="`/api/download?id=${previewFileData.id}`" :type="previewFileData.mime_type">
                             您的浏览器不支持视频预览
                         </video>
                     </div>
-                    <div v-else-if="isTextFile(previewFile.filename)" class="text-preview">
+                    <div v-else-if="isTextFile(previewFileData.filename)" class="text-preview">
                         <pre>{{ previewContent }}</pre>
                     </div>
                     <div v-else class="unsupported-preview">
                         <div class="unsupported-icon">📄</div>
                         <p>{{ previewContent || '此文件类型不支持预览' }}</p>
-                        <button @click="downloadFile(previewFile)" class="download-btn">💾 下载查看</button>
+                        <button @click="downloadFile(previewFileData)" class="download-btn">💾 下载查看</button>
                     </div>
                 </div>
             </div>

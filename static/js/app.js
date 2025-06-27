@@ -67,7 +67,7 @@ createApp({
             
             // 预览相关
             showPreviewModal: false,
-            previewFile: null,
+            previewFileData: null,
             previewContent: ''
         };
     },
@@ -298,7 +298,7 @@ createApp({
         
         // 文件预览
         async previewFile(file) {
-            this.previewFile = file;
+            this.previewFileData = file;
             this.showPreviewModal = true;
             
             if (this.isTextFile(file.filename)) {
@@ -483,7 +483,7 @@ createApp({
             this.isRegister = false;
             this.loginForm = { username: '', password: '' };
             this.uploadFiles = [];
-            this.previewFile = {};
+            this.previewFileData = {};
             this.previewContent = '';
         },
         

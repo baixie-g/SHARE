@@ -8,6 +8,7 @@
 #include <fstream>
 #include <ctime>
 #include <sys/stat.h>
+#include <cctype>
 #include "server.h"
 #include "database.h"
 #include "file_manager.h"
@@ -63,6 +64,57 @@ bool check_admin_permission(const std::string& session_id) {
     return session.role == "admin";
 }
 
+// 通用的用户验证函数
+int get_user_id_from_session(const std::map<std::string, std::string>& params) {
+    auto cookie_it = params.find("Cookie");
+    if (cookie_it == params.end()) {
+        cookie_it = params.find("cookie");
+    }
+    
+    if (cookie_it == params.end()) {
+        return -1;
+    }
+    
+    std::string session_id = get_session_from_cookies(cookie_it->second);
+    if (session_id.empty()) {
+        return -1;
+    }
+    
+    Session session = g_database->get_session(session_id);
+    if (session.username.empty()) {
+        return -1;
+    }
+    
+    User user = g_database->get_user(session.username);
+    return user.id;
+}
+
+// 从请求中获取用户ID（同时支持headers和params）
+int get_user_id_from_request(const HttpRequest& request) {
+    // 先尝试从headers获取Cookie
+    auto cookie_it = request.headers.find("Cookie");
+    if (cookie_it == request.headers.end()) {
+        cookie_it = request.headers.find("cookie");
+    }
+    
+    if (cookie_it == request.headers.end()) {
+        return -1;
+    }
+    
+    std::string session_id = get_session_from_cookies(cookie_it->second);
+    if (session_id.empty()) {
+        return -1;
+    }
+    
+    Session session = g_database->get_session(session_id);
+    if (session.username.empty()) {
+        return -1;
+    }
+    
+    User user = g_database->get_user(session.username);
+    return user.id;
+}
+
 // 前向声明
 std::string handle_login(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_register(const std::string& body, const std::map<std::string, std::string>& params);
@@ -76,6 +128,36 @@ std::string handle_get_users(const std::string& body, const std::map<std::string
 std::string handle_delete_user(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_delete_file(const std::string& body, const std::map<std::string, std::string>& params);
 std::string handle_kill_process(const std::string& body, const std::map<std::string, std::string>& params);
+
+// 新的个人文件管理API
+std::string handle_my_files(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_shared_files(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_toggle_share(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_user_storage(const std::string& body, const std::map<std::string, std::string>& params);
+std::string handle_admin_files(const std::string& body, const std::map<std::string, std::string>& params);
+
+// 管理员获取所有文件（包含完整信息）
+std::string handle_admin_files(const std::string& body, const std::map<std::string, std::string>& params) {
+    // 验证管理员权限
+    int user_id = get_user_id_from_session(params);
+    if (user_id == -1) {
+        return JsonHelper::error_response("Authentication required");
+    }
+    
+    // 获取用户信息验证是否为管理员
+    User* user = g_database->getUserById(user_id);
+    if (!user || user->role != "admin") {
+        if (user) delete user;
+        return JsonHelper::error_response("Admin permission required");
+    }
+    delete user;
+    
+    // 获取所有文件（包含用户信息和分享状态）
+    std::vector<FileInfo> files = g_database->getAllFilesForAdmin();
+    std::string files_json = JsonHelper::serialize_files(files);
+    
+    return JsonHelper::data_response(files_json, "Admin files retrieved successfully");
+}
 
 // 包装函数：将旧的路由处理器适配为新的签名
 void handle_login_route(const HttpRequest& request, HttpResponse& response) {
@@ -124,9 +206,18 @@ void handle_register_route(const HttpRequest& request, HttpResponse& response) {
 void handle_user_profile_route(const HttpRequest& request, HttpResponse& response);
 
 void handle_logout_route(const HttpRequest& request, HttpResponse& response) {
-    std::string result = handle_logout(request.body, request.params);
+    // 将headers和params合并传递给handle_logout
+    std::map<std::string, std::string> combined_params = request.params;
+    for (const auto& header : request.headers) {
+        combined_params[header.first] = header.second;
+    }
+    
+    std::string result = handle_logout(request.body, combined_params);
     response.body = result;
     response.headers["Content-Type"] = "application/json";
+    
+    // 清除Cookie
+    response.headers["Set-Cookie"] = "session_id=; Path=/; Max-Age=0; HttpOnly";
 }
 
 void handle_user_profile_route(const HttpRequest& request, HttpResponse& response) {
@@ -219,9 +310,26 @@ std::string handle_register(const std::string& body, const std::map<std::string,
 
 // 用户登出
 std::string handle_logout(const std::string& body, const std::map<std::string, std::string>& params) {
-    // 这里应该从Cookie中获取session_id，简化处理
-    return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: session_id=; Path=/; Max-Age=0\r\n\r\n" + 
-           JsonHelper::success_response("Logout successful");
+    try {
+        // 从Cookie中获取session_id
+        auto cookie_it = params.find("Cookie");
+        if (cookie_it == params.end()) {
+            cookie_it = params.find("cookie");
+        }
+        
+        if (cookie_it != params.end()) {
+            std::string session_id = get_session_from_cookies(cookie_it->second);
+            if (!session_id.empty()) {
+                // 从数据库中删除session
+                g_database->deleteSession(session_id);
+            }
+        }
+        
+        return JsonHelper::success_response("Logout successful");
+        
+    } catch (const std::exception& e) {
+        return JsonHelper::error_response("Logout failed");
+    }
 }
 
 // 获取用户资料（验证session）
@@ -285,9 +393,15 @@ std::string handle_get_files(const std::string& body, const std::map<std::string
     return JsonHelper::paginated_response(files_json, total, page, limit);
 }
 
-// 简化的multipart/form-data解析
-std::map<std::string, std::string> parse_multipart_fields(const std::string& body, const std::string& boundary) {
-    std::map<std::string, std::string> fields;
+// 改进的multipart/form-data解析
+struct MultipartField {
+    std::string content;
+    std::string filename;
+    std::string content_type;
+};
+
+std::map<std::string, MultipartField> parse_multipart_fields_enhanced(const std::string& body, const std::string& boundary) {
+    std::map<std::string, MultipartField> fields;
     
     size_t pos = 0;
     while (pos < body.length()) {
@@ -312,7 +426,32 @@ std::map<std::string, std::string> parse_multipart_fields(const std::string& bod
             size_t name_end = headers.find("\"", name_pos);
             if (name_end != std::string::npos) {
                 std::string field_name = headers.substr(name_pos, name_end - name_pos);
-                fields[field_name] = content;
+                
+                MultipartField field;
+                field.content = content;
+                
+                // 解析文件名 (如果存在)
+                size_t filename_pos = headers.find("filename=\"");
+                if (filename_pos != std::string::npos) {
+                    filename_pos += 10;
+                    size_t filename_end = headers.find("\"", filename_pos);
+                    if (filename_end != std::string::npos) {
+                        field.filename = headers.substr(filename_pos, filename_end - filename_pos);
+                    }
+                }
+                
+                // 解析Content-Type (如果存在)
+                size_t content_type_pos = headers.find("Content-Type: ");
+                if (content_type_pos != std::string::npos) {
+                    content_type_pos += 14;
+                    size_t content_type_end = headers.find("\r\n", content_type_pos);
+                    if (content_type_end == std::string::npos) {
+                        content_type_end = headers.length();
+                    }
+                    field.content_type = headers.substr(content_type_pos, content_type_end - content_type_pos);
+                }
+                
+                fields[field_name] = field;
             }
         }
         
@@ -322,9 +461,89 @@ std::map<std::string, std::string> parse_multipart_fields(const std::string& bod
     return fields;
 }
 
+// 保持向后兼容的简化版本
+std::map<std::string, std::string> parse_multipart_fields(const std::string& body, const std::string& boundary) {
+    auto enhanced_fields = parse_multipart_fields_enhanced(body, boundary);
+    std::map<std::string, std::string> simple_fields;
+    
+    for (const auto& field : enhanced_fields) {
+        simple_fields[field.first] = field.second.content;
+    }
+    
+    return simple_fields;
+}
+
+// 获取文件扩展名
+std::string get_file_extension(const std::string& filename) {
+    size_t dot_pos = filename.find_last_of('.');
+    if (dot_pos != std::string::npos && dot_pos < filename.length() - 1) {
+        return filename.substr(dot_pos);
+    }
+    return "";
+}
+
+// 根据文件扩展名获取MIME类型
+std::string get_mime_type(const std::string& filename) {
+    std::string ext = get_file_extension(filename);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    
+    if (ext == ".jpg" || ext == ".jpeg") return "image/jpeg";
+    if (ext == ".png") return "image/png";
+    if (ext == ".gif") return "image/gif";
+    if (ext == ".webp") return "image/webp";
+    if (ext == ".svg") return "image/svg+xml";
+    if (ext == ".bmp") return "image/bmp";
+    if (ext == ".ico") return "image/x-icon";
+    
+    if (ext == ".mp4") return "video/mp4";
+    if (ext == ".avi") return "video/x-msvideo";
+    if (ext == ".mov") return "video/quicktime";
+    if (ext == ".wmv") return "video/x-ms-wmv";
+    if (ext == ".flv") return "video/x-flv";
+    if (ext == ".webm") return "video/webm";
+    if (ext == ".mkv") return "video/x-matroska";
+    
+    if (ext == ".mp3") return "audio/mpeg";
+    if (ext == ".wav") return "audio/wav";
+    if (ext == ".flac") return "audio/flac";
+    if (ext == ".aac") return "audio/aac";
+    if (ext == ".ogg") return "audio/ogg";
+    if (ext == ".wma") return "audio/x-ms-wma";
+    
+    if (ext == ".pdf") return "application/pdf";
+    if (ext == ".doc") return "application/msword";
+    if (ext == ".docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    if (ext == ".xls") return "application/vnd.ms-excel";
+    if (ext == ".xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    if (ext == ".ppt") return "application/vnd.ms-powerpoint";
+    if (ext == ".pptx") return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    
+    if (ext == ".txt") return "text/plain";
+    if (ext == ".html" || ext == ".htm") return "text/html";
+    if (ext == ".css") return "text/css";
+    if (ext == ".js") return "application/javascript";
+    if (ext == ".json") return "application/json";
+    if (ext == ".xml") return "application/xml";
+    if (ext == ".csv") return "text/csv";
+    
+    if (ext == ".zip") return "application/zip";
+    if (ext == ".rar") return "application/vnd.rar";
+    if (ext == ".7z") return "application/x-7z-compressed";
+    if (ext == ".tar") return "application/x-tar";
+    if (ext == ".gz") return "application/gzip";
+    
+    return "application/octet-stream";
+}
+
 // 文件上传
 std::string handle_upload(const std::string& body, const std::map<std::string, std::string>& params) {
     try {
+        // 验证用户登录
+        int user_id = get_user_id_from_session(params);
+        if (user_id == -1) {
+            return JsonHelper::error_response("Authentication required");
+        }
+        
         // 从Content-Type中提取boundary (检查多种格式)
         auto content_type_it = params.find("Content-Type");
         if (content_type_it == params.end()) {
@@ -347,23 +566,34 @@ std::string handle_upload(const std::string& body, const std::map<std::string, s
         
         std::string boundary = content_type.substr(boundary_pos + 9);
         
-        // 解析multipart数据
-        auto fields = parse_multipart_fields(body, boundary);
+        // 解析multipart数据 (使用增强版本)
+        auto enhanced_fields = parse_multipart_fields_enhanced(body, boundary);
         
-        auto file_it = fields.find("file");
-        auto category_it = fields.find("category");
+        auto file_it = enhanced_fields.find("file");
+        auto category_it = enhanced_fields.find("category");
         
-        if (file_it == fields.end()) {
+        if (file_it == enhanced_fields.end()) {
             return JsonHelper::error_response("No file provided");
         }
         
         std::string category = "others";
-        if (category_it != fields.end()) {
-            category = category_it->second;
+        if (category_it != enhanced_fields.end()) {
+            category = category_it->second.content;
         }
         
-        // 简化实现：生成文件名和保存文件
-        std::string filename = "uploaded_" + std::to_string(time(nullptr)) + ".txt";
+        // 获取原始文件名和扩展名
+        std::string original_filename = file_it->second.filename;
+        if (original_filename.empty()) {
+            original_filename = "unnamed_file";
+        }
+        
+        // 生成唯一的文件名，保持原扩展名
+        std::string file_extension = get_file_extension(original_filename);
+        if (file_extension.empty()) {
+            file_extension = ".bin"; // 默认扩展名
+        }
+        
+        std::string filename = "uploaded_" + std::to_string(time(nullptr)) + file_extension;
         std::string filepath = "shared/" + category + "/" + filename;
         
         // 确保目录存在
@@ -376,16 +606,39 @@ std::string handle_upload(const std::string& body, const std::map<std::string, s
             return JsonHelper::error_response("Failed to save file");
         }
         
-        file.write(file_it->second.c_str(), file_it->second.length());
+        file.write(file_it->second.content.c_str(), file_it->second.content.length());
         file.close();
         
-        // 添加到数据库
-        long file_size = file_it->second.length();
-        bool success = g_database->addFile(filename, filepath, "application/octet-stream", file_size, 1, category);
+        // 检查文件大小和用户配额
+        long file_size = file_it->second.content.length();
+        auto storage_info = g_database->getUserStorageInfo(user_id);
+        long used = storage_info.first;
+        long quota = storage_info.second;
+        
+        if (used + file_size > quota) {
+            // 删除已保存的文件
+            std::remove(filepath.c_str());
+            return JsonHelper::error_response("Storage quota exceeded. Available: " + 
+                std::to_string((quota - used) / 1024 / 1024) + "MB");
+        }
+        
+        // 获取正确的MIME类型
+        std::string mime_type = get_mime_type(original_filename);
+        if (!file_it->second.content_type.empty()) {
+            mime_type = file_it->second.content_type; // 如果浏览器提供了MIME类型，优先使用
+        }
+        
+        // 添加到数据库，使用原始文件名和正确的MIME类型
+        bool success = g_database->addFile(original_filename, filepath, mime_type, 
+                                          file_size, user_id, category, false); // 默认不分享
         
         if (success) {
+            // 更新用户存储使用量
+            g_database->updateUserStorage(user_id, file_size);
             return JsonHelper::success_response("File uploaded successfully");
         } else {
+            // 删除已保存的文件
+            std::remove(filepath.c_str());
             return JsonHelper::error_response("Failed to save file info to database");
         }
         
@@ -536,6 +789,113 @@ std::string handle_kill_process(const std::string& body, const std::map<std::str
     }
 }
 
+// === 新的个人文件管理API ===
+
+// 获取我的文件列表
+std::string handle_my_files(const std::string& body, const std::map<std::string, std::string>& params) {
+    int user_id = get_user_id_from_session(params);
+    if (user_id == -1) {
+        return JsonHelper::error_response("Authentication required");
+    }
+    
+    int page = 1;
+    int limit = 20;
+    
+    auto it = params.find("page");
+    if (it != params.end()) {
+        page = std::stoi(it->second);
+    }
+    
+    it = params.find("limit");
+    if (it != params.end()) {
+        limit = std::stoi(it->second);
+    }
+    
+    std::vector<FileInfo> files = g_database->getUserFiles(user_id, limit, (page - 1) * limit);
+    std::string files_json = JsonHelper::serialize_files(files);
+    
+    // 获取总数（简化版本，这里没有分页总数计算）
+    return JsonHelper::data_response(files_json, "My files retrieved successfully");
+}
+
+
+// 获取所有分享的文件
+std::string handle_shared_files(const std::string& body, const std::map<std::string, std::string>& params) {
+    int page = 1;
+    int limit = 20;
+    
+    auto it = params.find("page");
+    if (it != params.end()) {
+        page = std::stoi(it->second);
+    }
+    
+    it = params.find("limit");
+    if (it != params.end()) {
+        limit = std::stoi(it->second);
+    }
+    
+    std::vector<FileInfo> files = g_database->getSharedFiles(limit, (page - 1) * limit);
+    std::string files_json = JsonHelper::serialize_files(files);
+    
+    return JsonHelper::data_response(files_json, "Shared files retrieved successfully");
+}
+
+// 切换文件分享状态
+std::string handle_toggle_share(const std::string& body, const std::map<std::string, std::string>& params) {
+    int user_id = get_user_id_from_session(params);
+    if (user_id == -1) {
+        return JsonHelper::error_response("Authentication required");
+    }
+    
+    auto form_data = JsonHelper::parse_form_data(body);
+    auto it = form_data.find("file_id");
+    if (it == form_data.end()) {
+        return JsonHelper::error_response("Missing file ID");
+    }
+    
+    int file_id = std::stoi(it->second);
+    
+    // 验证文件所有权
+    FileInfo* file = g_database->getFileById(file_id);
+    if (!file) {
+        return JsonHelper::error_response("File not found");
+    }
+    
+    if (file->uploader_id != user_id) {
+        delete file;
+        return JsonHelper::error_response("Permission denied");
+    }
+    
+    bool new_share_status = !file->is_shared;
+    delete file;
+    
+    if (g_database->toggleFileShare(file_id, new_share_status)) {
+        std::string message = new_share_status ? "File shared successfully" : "File unshared successfully";
+        return JsonHelper::success_response(message);
+    } else {
+        return JsonHelper::error_response("Failed to toggle share status");
+    }
+}
+
+// 获取用户存储信息
+std::string handle_user_storage(const std::string& body, const std::map<std::string, std::string>& params) {
+    int user_id = get_user_id_from_session(params);
+    if (user_id == -1) {
+        return JsonHelper::error_response("Authentication required");
+    }
+    
+    auto storage_info = g_database->getUserStorageInfo(user_id);
+    long used = storage_info.first;
+    long quota = storage_info.second;
+    
+    std::string storage_json = "{\"used\":" + std::to_string(used) + 
+                              ",\"quota\":" + std::to_string(quota) + 
+                              ",\"available\":" + std::to_string(quota - used) + 
+                              ",\"usage_percent\":" + std::to_string((double)used / quota * 100) + "}";
+    
+    return JsonHelper::data_response(storage_json, "Storage info retrieved successfully");
+}
+
 // 包装函数
 void handle_get_users_route(const HttpRequest& request, HttpResponse& response) {
     std::string result = handle_get_users(request.body, request.params);
@@ -563,6 +923,61 @@ void handle_kill_process_route(const HttpRequest& request, HttpResponse& respons
     // 解析表单数据
     auto form_data = JsonHelper::parse_form_data(request.body);
     std::string result = handle_kill_process(request.body, form_data);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+// 新的文件管理路由包装函数
+void handle_my_files_route(const HttpRequest& request, HttpResponse& response) {
+    // 将headers和params合并
+    std::map<std::string, std::string> combined_params = request.params;
+    for (const auto& header : request.headers) {
+        combined_params[header.first] = header.second;
+    }
+    
+    std::string result = handle_my_files(request.body, combined_params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_shared_files_route(const HttpRequest& request, HttpResponse& response) {
+    std::string result = handle_shared_files(request.body, request.params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_toggle_share_route(const HttpRequest& request, HttpResponse& response) {
+    // 将headers和params合并
+    std::map<std::string, std::string> combined_params = request.params;
+    for (const auto& header : request.headers) {
+        combined_params[header.first] = header.second;
+    }
+    
+    std::string result = handle_toggle_share(request.body, combined_params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_user_storage_route(const HttpRequest& request, HttpResponse& response) {
+    // 将headers和params合并
+    std::map<std::string, std::string> combined_params = request.params;
+    for (const auto& header : request.headers) {
+        combined_params[header.first] = header.second;
+    }
+    
+    std::string result = handle_user_storage(request.body, combined_params);
+    response.body = result;
+    response.headers["Content-Type"] = "application/json";
+}
+
+void handle_admin_files_route(const HttpRequest& request, HttpResponse& response) {
+    // 将headers和params合并
+    std::map<std::string, std::string> combined_params = request.params;
+    for (const auto& header : request.headers) {
+        combined_params[header.first] = header.second;
+    }
+    
+    std::string result = handle_admin_files(request.body, combined_params);
     response.body = result;
     response.headers["Content-Type"] = "application/json";
 }
@@ -614,6 +1029,13 @@ int main() {
     g_server->add_post_route("/api/admin/delete-user", handle_delete_user_route);
     g_server->add_post_route("/api/admin/delete-file", handle_delete_file_route);
     g_server->add_post_route("/api/admin/kill-process", handle_kill_process_route);
+    
+    // 新的个人文件管理API
+    g_server->add_route("/api/my-files", handle_my_files_route);
+    g_server->add_route("/api/shared-files", handle_shared_files_route);
+    g_server->add_post_route("/api/toggle-share", handle_toggle_share_route);
+    g_server->add_route("/api/user/storage", handle_user_storage_route);
+    g_server->add_route("/api/admin/files", handle_admin_files_route);
     
     std::cout << "服务器启动成功，访问地址: http://localhost:8080" << std::endl;
     std::cout << "默认管理员账户: admin / admin123" << std::endl;

@@ -1,6 +1,22 @@
+=== g00j小站 文件共享系统 ===
+正在启动服务器...
+正在初始化目录结构...
+✓ 共享文件目录已创建
+
+正在启动服务器...
+服务器地址: http://localhost:8080
+默认管理员: admin / admin123
+
+按 Ctrl+C 停止服务器
+
 启动 g00j小站 文件共享系统...
+SQL error: duplicate column name: storage_quota
+SQL error: duplicate column name: storage_used
+SQL error: duplicate column name: is_shared
+SQL error: duplicate column name: shared_at
+SQL error: duplicate column name: description
 数据库初始化成功
 服务器启动成功，访问地址: http://localhost:8080
 默认管理员账户: admin / admin123
-绑定地址失败
-服务器启动失败
+HTTP服务器在端口 8080 启动成功
+按 Ctrl+C 停止服务器...

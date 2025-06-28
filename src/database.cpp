@@ -26,6 +26,11 @@ bool Database::initialize() {
         return false;
     }
     
+    if (!upgradeTables()) {
+        std::cerr << "Failed to upgrade tables" << std::endl;
+        return false;
+    }
+    
     if (!createDefaultAdmin()) {
         std::cerr << "Failed to create default admin" << std::endl;
         return false;
@@ -64,7 +69,9 @@ bool Database::createTables() {
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'user',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            active INTEGER DEFAULT 1
+            active INTEGER DEFAULT 1,
+            storage_quota INTEGER DEFAULT 1073741824,
+            storage_used INTEGER DEFAULT 0
         );
     )";
     
@@ -84,7 +91,10 @@ bool Database::createTables() {
             uploader_id INTEGER,
             category TEXT NOT NULL DEFAULT 'other',
             download_count INTEGER DEFAULT 0,
-            is_public INTEGER DEFAULT 1,
+            is_public INTEGER DEFAULT 0,
+            is_shared INTEGER DEFAULT 0,
+            shared_at DATETIME NULL,
+            description TEXT DEFAULT '',
             FOREIGN KEY (uploader_id) REFERENCES users (id)
         );
     )";
@@ -105,6 +115,174 @@ bool Database::createTables() {
     )";
     
     return execute(sql);
+}
+
+bool Database::upgradeTables() {
+    // 为用户表添加配额字段
+    execute("ALTER TABLE users ADD COLUMN storage_quota INTEGER DEFAULT 1073741824");
+    execute("ALTER TABLE users ADD COLUMN storage_used INTEGER DEFAULT 0");
+    
+    // 为文件表添加分享字段
+    execute("ALTER TABLE files ADD COLUMN is_shared INTEGER DEFAULT 0");
+    execute("ALTER TABLE files ADD COLUMN shared_at DATETIME NULL");
+    execute("ALTER TABLE files ADD COLUMN description TEXT DEFAULT ''");
+    
+    // 更新现有文件的默认分享状态
+    execute("UPDATE files SET is_public = 0, is_shared = 0 WHERE is_public = 1");
+    
+    return true;
+}
+
+// 获取用户文件
+std::vector<FileInfo> Database::getUserFiles(int user_id, int limit, int offset) {
+    std::string sql = "SELECT id, filename, filepath, file_type, file_size, uploader_id, upload_time, category, download_count, is_public, is_shared, shared_at, description FROM files WHERE uploader_id = ? ORDER BY upload_time DESC LIMIT ? OFFSET ?";
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return {};
+    }
+    
+    sqlite3_bind_int(stmt, 1, user_id);
+    sqlite3_bind_int(stmt, 2, limit);
+    sqlite3_bind_int(stmt, 3, offset);
+    
+    std::vector<FileInfo> files;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        FileInfo file;
+        file.id = sqlite3_column_int(stmt, 0);
+        file.filename = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        file.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        file.file_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        file.file_size = sqlite3_column_int64(stmt, 4);
+        file.uploader_id = sqlite3_column_int(stmt, 5);
+        file.upload_time = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+        file.category = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+        file.download_count = sqlite3_column_int(stmt, 8);
+        file.is_public = sqlite3_column_int(stmt, 9) != 0;
+        file.is_shared = sqlite3_column_int(stmt, 10) != 0;
+        const char* shared_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11));
+        file.shared_at = shared_at ? shared_at : "";
+        const char* description = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 12));
+        file.description = description ? description : "";
+        
+        // 设置其他字段
+        file.size = file.file_size;
+        file.mime_type = file.file_type;
+        file.uploader = "User " + std::to_string(file.uploader_id);
+        
+        files.push_back(file);
+    }
+    
+    sqlite3_finalize(stmt);
+    return files;
+}
+
+// 获取分享的文件
+std::vector<FileInfo> Database::getSharedFiles(int limit, int offset) {
+    std::string sql = "SELECT f.id, f.filename, f.filepath, f.file_type, f.file_size, f.uploader_id, f.upload_time, f.category, f.download_count, f.is_public, f.is_shared, f.shared_at, f.description, u.username FROM files f LEFT JOIN users u ON f.uploader_id = u.id WHERE f.is_shared = 1 ORDER BY f.shared_at DESC, f.upload_time DESC LIMIT ? OFFSET ?";
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return {};
+    }
+    
+    sqlite3_bind_int(stmt, 1, limit);
+    sqlite3_bind_int(stmt, 2, offset);
+    
+    std::vector<FileInfo> files;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        FileInfo file;
+        file.id = sqlite3_column_int(stmt, 0);
+        file.filename = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        file.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        file.file_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        file.file_size = sqlite3_column_int64(stmt, 4);
+        file.uploader_id = sqlite3_column_int(stmt, 5);
+        file.upload_time = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+        file.category = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+        file.download_count = sqlite3_column_int(stmt, 8);
+        file.is_public = sqlite3_column_int(stmt, 9) != 0;
+        file.is_shared = sqlite3_column_int(stmt, 10) != 0;
+        const char* shared_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11));
+        file.shared_at = shared_at ? shared_at : "";
+        const char* description = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 12));
+        file.description = description ? description : "";
+        const char* username = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13));
+        file.uploader = username ? username : "Unknown";
+        
+        // 设置其他字段
+        file.size = file.file_size;
+        file.mime_type = file.file_type;
+        
+        files.push_back(file);
+    }
+    
+    sqlite3_finalize(stmt);
+    return files;
+}
+
+// 切换文件分享状态
+bool Database::toggleFileShare(int file_id, bool is_shared) {
+    std::string sql;
+    if (is_shared) {
+        sql = "UPDATE files SET is_shared = 1, shared_at = CURRENT_TIMESTAMP WHERE id = ?";
+    } else {
+        sql = "UPDATE files SET is_shared = 0, shared_at = NULL WHERE id = ?";
+    }
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return false;
+    }
+    
+    sqlite3_bind_int(stmt, 1, file_id);
+    bool success = sqlite3_step(stmt) == SQLITE_DONE;
+    sqlite3_finalize(stmt);
+    
+    return success;
+}
+
+// 更新用户存储使用量
+bool Database::updateUserStorage(int user_id, long storage_change) {
+    std::string sql = "UPDATE users SET storage_used = storage_used + ? WHERE id = ?";
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return false;
+    }
+    
+    sqlite3_bind_int64(stmt, 1, storage_change);
+    sqlite3_bind_int(stmt, 2, user_id);
+    bool success = sqlite3_step(stmt) == SQLITE_DONE;
+    sqlite3_finalize(stmt);
+    
+    return success;
+}
+
+// 获取用户存储使用情况
+std::pair<long, long> Database::getUserStorageInfo(int user_id) {
+    std::string sql = "SELECT storage_used, storage_quota FROM users WHERE id = ?";
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return {0, 0};
+    }
+    
+    sqlite3_bind_int(stmt, 1, user_id);
+    
+    std::pair<long, long> result = {0, 0};
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        result.first = sqlite3_column_int64(stmt, 0);  // storage_used
+        result.second = sqlite3_column_int64(stmt, 1); // storage_quota
+    }
+    
+    sqlite3_finalize(stmt);
+    return result;
 }
 
 bool Database::createDefaultAdmin() {
@@ -152,7 +330,7 @@ bool Database::createUser(const std::string& username, const std::string& passwo
 
 User* Database::authenticateUser(const std::string& username, const std::string& password) {
     sqlite3_stmt* stmt;
-    std::string sql = "SELECT id, username, password_hash, role, created_at, active FROM users WHERE username = ? AND active = 1";
+    std::string sql = "SELECT id, username, password_hash, role, created_at, active, storage_quota, storage_used FROM users WHERE username = ? AND active = 1";
     
     if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         return nullptr;
@@ -172,6 +350,8 @@ User* Database::authenticateUser(const std::string& username, const std::string&
             user->role = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
             user->created_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
             user->active = sqlite3_column_int(stmt, 5) != 0;
+            user->storage_quota = sqlite3_column_int64(stmt, 6);
+            user->storage_used = sqlite3_column_int64(stmt, 7);
         }
     }
     
@@ -181,7 +361,7 @@ User* Database::authenticateUser(const std::string& username, const std::string&
 
 User* Database::getUserById(int user_id) {
     sqlite3_stmt* stmt;
-    std::string sql = "SELECT id, username, password_hash, role, created_at, active FROM users WHERE id = ?";
+    std::string sql = "SELECT id, username, password_hash, role, created_at, active, storage_quota, storage_used FROM users WHERE id = ?";
     
     if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         return nullptr;
@@ -198,6 +378,8 @@ User* Database::getUserById(int user_id) {
         user->role = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
         user->created_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
         user->active = sqlite3_column_int(stmt, 5) != 0;
+        user->storage_quota = sqlite3_column_int64(stmt, 6);
+        user->storage_used = sqlite3_column_int64(stmt, 7);
     }
     
     sqlite3_finalize(stmt);
@@ -553,13 +735,29 @@ long Database::getTotalFileSize() {
 
 // 为兼容性添加缺失的方法
 Session Database::get_session(const std::string& session_id) {
-    Session* session = validateSession(session_id);
-    if (session) {
-        Session result = *session;
-        delete session;
-        return result;
+    const char* sql = "SELECT s.session_id, s.user_id, s.created_at, s.expires_at, u.username, u.role "
+                     "FROM sessions s JOIN users u ON s.user_id = u.id "
+                     "WHERE s.session_id = ? AND s.expires_at > datetime('now')";
+    sqlite3_stmt* stmt;
+    
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return Session();
     }
-    return Session();
+    
+    sqlite3_bind_text(stmt, 1, session_id.c_str(), -1, SQLITE_STATIC);
+    
+    Session session;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        session.session_id = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        session.user_id = sqlite3_column_int(stmt, 1);
+        session.created_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        session.expires_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        session.username = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+        session.role = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5));
+    }
+    
+    sqlite3_finalize(stmt);
+    return session;
 }
 
 std::vector<FileInfo> Database::get_files(int page, int limit, const std::string& category) {
@@ -768,4 +966,53 @@ std::string Database::get_session_user(const std::string& session_id) {
     
     sqlite3_finalize(stmt);
     return username;
+}
+
+// 管理员获取所有文件（包含完整信息）
+std::vector<FileInfo> Database::getAllFilesForAdmin() {
+    std::string sql = "SELECT f.id, f.filename, f.filepath, f.file_type, f.file_size, f.uploader_id, f.upload_time, f.category, f.download_count, f.is_public, f.is_shared, f.shared_at, f.description, u.username "
+                     "FROM files f "
+                     "LEFT JOIN users u ON f.uploader_id = u.id "
+                     "ORDER BY f.upload_time DESC";
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return {};
+    }
+    
+    std::vector<FileInfo> files;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        FileInfo file;
+        file.id = sqlite3_column_int(stmt, 0);
+        file.filename = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        file.filepath = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        file.file_type = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+        file.file_size = sqlite3_column_int64(stmt, 4);
+        file.uploader_id = sqlite3_column_int(stmt, 5);
+        file.upload_time = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
+        file.category = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 7));
+        file.download_count = sqlite3_column_int(stmt, 8);
+        file.is_public = sqlite3_column_int(stmt, 9) != 0;
+        file.is_shared = sqlite3_column_int(stmt, 10) != 0;
+        
+        // 处理可能为NULL的字段
+        const char* shared_at = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 11));
+        file.shared_at = shared_at ? shared_at : "";
+        
+        const char* description = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 12));
+        file.description = description ? description : "";
+        
+        const char* username = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 13));
+        file.uploader = username ? username : ("User" + std::to_string(file.uploader_id));
+        
+        // 设置其他字段以确保兼容性
+        file.size = file.file_size;
+        file.mime_type = file.file_type;
+        
+        files.push_back(file);
+    }
+    
+    sqlite3_finalize(stmt);
+    return files;
 } 

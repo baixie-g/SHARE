@@ -13,6 +13,8 @@ struct User {
     std::string role;  // "admin", "user", "guest"
     std::string created_at;
     bool active;
+    long storage_quota;    // 存储配额 (字节)
+    long storage_used;     // 已使用存储 (字节)
 };
 
 // 文件信息结构
@@ -31,6 +33,9 @@ struct FileInfo {
     std::string category;  // "video", "document", "image", "other"
     int download_count;
     bool is_public;
+    bool is_shared;            // 是否分享
+    std::string shared_at;     // 分享时间
+    std::string description;   // 文件描述
 };
 
 // 会话信息结构
@@ -84,7 +89,7 @@ public:
     // 添加文件记录
     bool addFile(const std::string& filename, const std::string& filepath, 
                  const std::string& file_type, long file_size, int uploader_id, 
-                 const std::string& category = "other", bool is_public = true);
+                 const std::string& category = "other", bool is_public = false);
     
     // 获取所有文件列表
     std::vector<FileInfo> getAllFiles(int limit = 100, int offset = 0);
@@ -94,6 +99,24 @@ public:
     
     // 获取公开文件列表
     std::vector<FileInfo> getPublicFiles(int limit = 100, int offset = 0);
+    
+    // 获取用户分享的文件
+    std::vector<FileInfo> getUserSharedFiles(int user_id, int limit = 100, int offset = 0);
+    
+    // 获取所有分享的文件
+    std::vector<FileInfo> getSharedFiles(int limit = 100, int offset = 0);
+    
+    // 管理员获取所有文件（包含完整信息）
+    std::vector<FileInfo> getAllFilesForAdmin();
+    
+    // 切换文件分享状态
+    bool toggleFileShare(int file_id, bool is_shared);
+    
+    // 更新用户存储使用量
+    bool updateUserStorage(int user_id, long storage_change);
+    
+    // 获取用户存储使用情况
+    std::pair<long, long> getUserStorageInfo(int user_id); // 返回 (已使用, 配额)
     
     // 根据分类获取文件
     std::vector<FileInfo> getFilesByCategory(const std::string& category, int limit = 100, int offset = 0);
@@ -165,6 +188,9 @@ private:
     
     // 创建表
     bool createTables();
+    
+    // 升级表结构
+    bool upgradeTables();
     
     // 创建默认管理员账户
     bool createDefaultAdmin();

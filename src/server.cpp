@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <thread>
 #include <fstream>
+#include <cstring>
+#include <vector>
 
 HttpServer::HttpServer(int port) : port_(port), server_fd_(-1), running_(false) {
 }
@@ -100,16 +102,88 @@ void HttpServer::setStaticRoot(const std::string& root) {
 }
 
 void HttpServer::handle_client(int client_fd) {
+    // 先读取HTTP头部来确定Content-Length
+    std::string headers;
     char buffer[4096];
-    ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+    ssize_t total_read = 0;
+    bool headers_complete = false;
     
-    if (bytes_read <= 0) {
+    // 读取并解析HTTP头部
+    while (!headers_complete && total_read < sizeof(buffer) - 1) {
+        ssize_t bytes_read = recv(client_fd, buffer + total_read, sizeof(buffer) - 1 - total_read, 0);
+        if (bytes_read <= 0) {
+            close(client_fd);
+            return;
+        }
+        
+        total_read += bytes_read;
+        buffer[total_read] = '\0';
+        
+        // 检查是否已读取完整的HTTP头部（以\r\n\r\n结束）
+        std::string current_data(buffer, total_read);
+        size_t header_end = current_data.find("\r\n\r\n");
+        if (header_end != std::string::npos) {
+            headers = current_data.substr(0, header_end + 4);
+            headers_complete = true;
+        }
+    }
+    
+    if (!headers_complete) {
         close(client_fd);
         return;
     }
     
-    buffer[bytes_read] = '\0';
-    std::string raw_request(buffer);
+    // 解析Content-Length
+    size_t content_length = 0;
+    size_t cl_pos = headers.find("Content-Length:");
+    if (cl_pos == std::string::npos) {
+        cl_pos = headers.find("content-length:");
+    }
+    
+    if (cl_pos != std::string::npos) {
+        size_t value_start = headers.find(":", cl_pos) + 1;
+        size_t value_end = headers.find("\r\n", value_start);
+        if (value_end != std::string::npos) {
+            std::string length_str = headers.substr(value_start, value_end - value_start);
+            // 移除前导空格
+            length_str.erase(0, length_str.find_first_not_of(' '));
+            content_length = std::stoull(length_str);
+        }
+    }
+    
+    // 构建完整的HTTP请求
+    std::string raw_request = headers;
+    
+    // 如果有body内容，继续读取
+    if (content_length > 0) {
+        // 检查header中是否已经包含了部分body
+        size_t header_end = headers.find("\r\n\r\n");
+        size_t body_in_buffer = total_read - (header_end + 4);
+        
+        // 为body数据分配足够的空间
+        std::vector<char> body_buffer(content_length);
+        size_t body_read = 0;
+        
+        // 如果缓冲区中已有部分body数据
+        if (body_in_buffer > 0) {
+            size_t copy_size = std::min(body_in_buffer, content_length);
+            memcpy(body_buffer.data(), buffer + header_end + 4, copy_size);
+            body_read = copy_size;
+        }
+        
+        // 继续读取剩余的body数据
+        while (body_read < content_length) {
+            ssize_t bytes_read = recv(client_fd, body_buffer.data() + body_read, 
+                                    content_length - body_read, 0);
+            if (bytes_read <= 0) {
+                break;
+            }
+            body_read += bytes_read;
+        }
+        
+        // 将body添加到请求中
+        raw_request.append(body_buffer.data(), body_read);
+    }
     
     HttpRequest request = parse_request(raw_request);
     HttpResponse response;
@@ -181,22 +255,11 @@ HttpRequest HttpServer::parse_request(const std::string& raw_request) {
         }
     }
     
-    // 解析body - 读取剩余的所有内容
-    std::string body;
-    std::string remaining;
-    while (std::getline(iss, line)) {
-        if (!body.empty()) {
-            body += "\n";
-        }
-        body += line;
+    // 解析body - 直接从原始请求中提取
+    size_t header_end = raw_request.find("\r\n\r\n");
+    if (header_end != std::string::npos) {
+        request.body = raw_request.substr(header_end + 4);
     }
-    
-    // 移除末尾的\r
-    if (!body.empty() && body.back() == '\r') {
-        body.pop_back();
-    }
-    
-    request.body = body;
     
     return request;
 }

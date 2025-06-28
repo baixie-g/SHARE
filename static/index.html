@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>g00j小站 - 文件共享系统</title>
+    <title>g00j小站 - 个人网盘</title>
     <link rel="stylesheet" href="/css/style.css">
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
@@ -14,14 +14,17 @@
         <nav class="navbar">
             <div class="nav-container">
                 <div class="nav-brand">
-                    <h1>🏠 g00j小站</h1>
+                    <h1>📦 g00j个人网盘</h1>
                 </div>
                 <div class="nav-menu">
                     <button @click="currentView = 'home'" :class="{'active': currentView === 'home'}">
-                        🏡 首页
+                        🏠 首页
                     </button>
-                    <button @click="currentView = 'files'" :class="{'active': currentView === 'files'}">
-                        📂 文件管理
+                    <button v-if="user" @click="currentView = 'myfiles'" :class="{'active': currentView === 'myfiles'}">
+                        📁 我的文件
+                    </button>
+                    <button @click="currentView = 'shared'" :class="{'active': currentView === 'shared'}">
+                        🌍 公共分享
                     </button>
                     <button v-if="user && user.role === 'admin'" @click="currentView = 'monitor'" 
                             :class="{'active': currentView === 'monitor'}">
@@ -44,92 +47,442 @@
 
         <!-- 主内容区域 -->
         <main class="main-content">
-            <!-- 首页视图 -->
-            <div v-if="currentView === 'home'" class="home-view">
-                <div class="welcome-section">
-                    <h2>🎉 欢迎来到 g00j小站</h2>
-                    <p>轻量级文件共享平台，支持视频播放、文档阅读、文件管理等完整功能</p>
-                </div>
-                
-                <div class="stats-cards">
-                    <div class="stat-card">
-                        <div class="stat-icon">📁</div>
-                        <div class="stat-info">
-                            <h3>{{ totalFiles }}</h3>
-                            <p>共享文件</p>
-                        </div>
+            <!-- 我的文件页面 -->
+            <div v-if="currentView === 'myfiles' && user" class="myfiles-view">
+                <!-- 页面顶部区域 -->
+                <div class="page-hero">
+                    <div class="page-hero-content">
+                        <h1 class="page-title">📁 我的文件</h1>
+                        <p class="page-subtitle">管理您的个人文件，轻松分享和组织</p>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-icon">👥</div>
-                        <div class="stat-info">
-                            <h3>{{ onlineUsers }}</h3>
-                            <p>在线用户</p>
+                    <div class="storage-overview">
+                        <div class="storage-visual">
+                            <div class="storage-circle">
+                                <svg viewBox="0 0 42 42" class="storage-chart">
+                                    <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="rgba(255,255,255,0.2)" stroke-width="3"></circle>
+                                    <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="url(#gradient)" stroke-width="3" 
+                                            :stroke-dasharray="`${storageUsagePercent} ${100 - storageUsagePercent}`" 
+                                            stroke-dashoffset="25" transform="rotate(-90 21 21)"></circle>
+                                    <defs>
+                                        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                            <stop offset="0%" style="stop-color:#667eea"/>
+                                            <stop offset="100%" style="stop-color:#764ba2"/>
+                                        </linearGradient>
+                                    </defs>
+                                </svg>
+                                <div class="storage-percentage">{{ storageUsagePercent.toFixed(0) }}%</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="stat-card" v-if="systemStatus">
-                        <div class="stat-icon">💾</div>
-                        <div class="stat-info">
-                            <h3>{{ parseFloat(systemStatus.disk_usage || 0).toFixed(1) }}%</h3>
-                            <p>磁盘使用率</p>
+                        <div class="storage-details">
+                            <div class="storage-stat">
+                                <span class="stat-label">已使用</span>
+                                <span class="stat-value">{{ formatFileSize(storageUsed) }}</span>
+                            </div>
+                            <div class="storage-stat">
+                                <span class="stat-label">总容量</span>
+                                <span class="stat-value">{{ formatFileSize(storageQuota) }}</span>
+                            </div>
+                            <div class="storage-stat">
+                                <span class="stat-label">剩余空间</span>
+                                <span class="stat-value">{{ formatFileSize(storageQuota - storageUsed) }}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="recent-files">
-                    <h3>📋 最新文件</h3>
-                    <div class="file-grid">
-                        <div v-for="file in recentFiles" :key="file.id" class="file-card">
-                            <div class="file-icon">{{ getFileIcon(file.category) }}</div>
+                <!-- 操作栏 -->
+                <div class="action-bar">
+                    <div class="action-left">
+                        <button @click="showUploadModal = true" class="primary-action-btn">
+                            📤 上传文件
+                        </button>
+                        <div class="file-count">
+                            {{ filteredMyFiles.length }} 个文件
+                        </div>
+                    </div>
+                    <div class="action-right">
+                        <div class="search-container">
+                            <input v-model="fileFilter" type="text" placeholder="🔍 搜索文件..." class="modern-search">
+                        </div>
+                        <select v-model="fileCategory" class="modern-select">
+                            <option value="">📂 所有分类</option>
+                            <option value="documents">📄 文档</option>
+                            <option value="images">🖼️ 图片</option>
+                            <option value="videos">🎬 视频</option>
+                            <option value="others">📦 其他</option>
+                        </select>
+                        <div class="view-toggle">
+                            <button @click="viewMode = 'grid'" :class="{'active': viewMode === 'grid'}" class="view-btn">⊞</button>
+                            <button @click="viewMode = 'list'" :class="{'active': viewMode === 'list'}" class="view-btn">☰</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 文件网格 -->
+                <div class="files-container">
+                    <div v-if="viewMode === 'grid'" class="files-grid modern-grid">
+                        <div v-for="file in filteredMyFiles" :key="file.id" class="modern-file-card">
+                            <div class="file-thumbnail">
+                                <div class="file-icon-large">{{ getFileIcon(file.filename) }}</div>
+                                <div class="file-overlay">
+                                    <button @click="previewFile(file)" class="overlay-btn">👁️</button>
+                                    <button @click="downloadFile(file)" class="overlay-btn">💾</button>
+                                </div>
+                            </div>
+                            <div class="file-details">
+                                <h4 class="file-name">{{ file.filename }}</h4>
+                                <div class="file-meta">
+                                    <span class="file-size">{{ formatFileSize(file.size) }}</span>
+                                    <span class="file-date">{{ formatDateShort(file.upload_time) }}</span>
+                                </div>
+                                <div class="file-badges">
+                                    <span v-if="file.is_shared" class="badge shared">🌍 已分享</span>
+                                    <span v-else class="badge private">🔒 私有</span>
+                                    <span class="badge category">{{ getCategoryName(file.category) }}</span>
+                                </div>
+                            </div>
+                            <div class="file-actions-menu">
+                                <button @click="toggleShare(file)" class="action-menu-btn" :class="{'shared': file.is_shared}">
+                                    {{ file.is_shared ? '🚫 取消分享' : '🌍 分享' }}
+                                </button>
+                                <button @click="deleteMyFile(file)" class="action-menu-btn danger">🗑️ 删除</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="viewMode === 'list'" class="files-list modern-list">
+                        <div class="list-header">
+                            <span class="col-name">文件名</span>
+                            <span class="col-size">大小</span>
+                            <span class="col-date">修改时间</span>
+                            <span class="col-status">状态</span>
+                            <span class="col-actions">操作</span>
+                        </div>
+                        <div v-for="file in filteredMyFiles" :key="file.id" class="list-item">
+                            <div class="col-name">
+                                <span class="file-icon-small">{{ getFileIcon(file.filename) }}</span>
+                                <span class="file-title">{{ file.filename }}</span>
+                            </div>
+                            <div class="col-size">{{ formatFileSize(file.size) }}</div>
+                            <div class="col-date">{{ formatDate(file.upload_time) }}</div>
+                            <div class="col-status">
+                                <span v-if="file.is_shared" class="status-badge shared">🌍 已分享</span>
+                                <span v-else class="status-badge private">🔒 私有</span>
+                            </div>
+                            <div class="col-actions">
+                                <button @click="previewFile(file)" class="list-action-btn">👁️</button>
+                                <button @click="downloadFile(file)" class="list-action-btn">💾</button>
+                                <button @click="toggleShare(file)" class="list-action-btn">{{ file.is_shared ? '🚫' : '🌍' }}</button>
+                                <button @click="deleteMyFile(file)" class="list-action-btn danger">🗑️</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 空状态 -->
+                <div v-if="filteredMyFiles.length === 0" class="empty-state modern-empty">
+                    <div class="empty-illustration">
+                        <div class="empty-cloud">☁️</div>
+                        <div class="empty-files">📂📄📷</div>
+                    </div>
+                    <h3 class="empty-title">{{ fileFilter ? '未找到匹配文件' : '开始您的文件之旅' }}</h3>
+                    <p class="empty-description">
+                        {{ fileFilter ? '尝试调整搜索条件或清空筛选器' : '上传第一个文件，开始使用您的个人网盘' }}
+                    </p>
+                    <button v-if="!fileFilter" @click="showUploadModal = true" class="empty-action-btn">
+                        📤 立即上传
+                    </button>
+                </div>
+            </div>
+
+            <!-- 公共分享页面 -->
+            <div v-if="currentView === 'shared'" class="shared-view">
+                <!-- 页面顶部区域 -->
+                <div class="page-hero">
+                    <div class="page-hero-content">
+                        <h1 class="page-title">🌍 公共分享</h1>
+                        <p class="page-subtitle">发现社区中其他用户分享的精彩内容</p>
+                    </div>
+                    <div class="share-stats">
+                        <div class="stat-item">
+                            <div class="stat-icon">📁</div>
+                            <div class="stat-info">
+                                <div class="stat-number">{{ sharedFiles.length }}</div>
+                                <div class="stat-label">分享文件</div>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-icon">👥</div>
+                            <div class="stat-info">
+                                <div class="stat-number">{{ getUniqueUploaders() }}</div>
+                                <div class="stat-label">贡献者</div>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-icon">📊</div>
+                            <div class="stat-info">
+                                <div class="stat-number">{{ formatFileSize(getTotalSharedSize()) }}</div>
+                                <div class="stat-label">总大小</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 操作栏 -->
+                <div class="action-bar">
+                    <div class="action-left">
+                        <div class="file-count">
+                            {{ filteredSharedFiles.length }} 个分享文件
+                        </div>
+                        <div class="sort-options">
+                            <button @click="sharedSortBy = 'latest'" :class="{'active': sharedSortBy === 'latest'}" class="sort-btn">
+                                🕒 最新
+                            </button>
+                            <button @click="sharedSortBy = 'popular'" :class="{'active': sharedSortBy === 'popular'}" class="sort-btn">
+                                🔥 热门
+                            </button>
+                            <button @click="sharedSortBy = 'size'" :class="{'active': sharedSortBy === 'size'}" class="sort-btn">
+                                📏 大小
+                            </button>
+                        </div>
+                    </div>
+                    <div class="action-right">
+                        <div class="search-container">
+                            <input v-model="sharedFilter" type="text" placeholder="🔍 搜索分享文件..." class="modern-search">
+                        </div>
+                        <select v-model="sharedCategory" class="modern-select">
+                            <option value="">📂 所有分类</option>
+                            <option value="documents">📄 文档</option>
+                            <option value="images">🖼️ 图片</option>
+                            <option value="videos">🎬 视频</option>
+                            <option value="others">📦 其他</option>
+                        </select>
+                        <div class="view-toggle">
+                            <button @click="sharedViewMode = 'grid'" :class="{'active': sharedViewMode === 'grid'}" class="view-btn">⊞</button>
+                            <button @click="sharedViewMode = 'list'" :class="{'active': sharedViewMode === 'list'}" class="view-btn">☰</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 文件展示区域 -->
+                <div class="files-container">
+                    <div v-if="sharedViewMode === 'grid'" class="files-grid modern-grid shared-grid">
+                        <div v-for="file in filteredSharedFiles" :key="file.id" class="modern-file-card shared-card">
+                            <div class="file-thumbnail">
+                                <div class="file-icon-large">{{ getFileIcon(file.filename) }}</div>
+                                <div class="file-overlay">
+                                    <button @click="previewFile(file)" class="overlay-btn">👁️</button>
+                                    <button @click="downloadFile(file)" class="overlay-btn">💾</button>
+                                </div>
+                                <div class="share-indicator">🌍</div>
+                            </div>
+                            <div class="file-details">
+                                <h4 class="file-name">{{ file.filename }}</h4>
+                                <div class="file-meta">
+                                    <span class="file-size">{{ formatFileSize(file.size) }}</span>
+                                    <span class="file-uploader">👤 {{ file.uploader }}</span>
+                                </div>
+                                <div class="file-badges">
+                                    <span class="badge shared-time">🕒 {{ formatDateShort(file.shared_at || file.upload_time) }}</span>
+                                    <span class="badge category">{{ getCategoryName(file.category) }}</span>
+                                </div>
+                            </div>
+                            <div class="file-actions-menu">
+                                <button @click="previewFile(file)" class="action-menu-btn primary">👁️ 预览</button>
+                                <button @click="downloadFile(file)" class="action-menu-btn">💾 下载</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="sharedViewMode === 'list'" class="files-list modern-list shared-list">
+                        <div class="list-header">
+                            <span class="col-name">文件名</span>
+                            <span class="col-size">大小</span>
+                            <span class="col-uploader">分享者</span>
+                            <span class="col-date">分享时间</span>
+                            <span class="col-actions">操作</span>
+                        </div>
+                        <div v-for="file in filteredSharedFiles" :key="file.id" class="list-item shared-item">
+                            <div class="col-name">
+                                <span class="file-icon-small">{{ getFileIcon(file.filename) }}</span>
+                                <span class="file-title">{{ file.filename }}</span>
+                                <span class="share-badge">🌍</span>
+                            </div>
+                            <div class="col-size">{{ formatFileSize(file.size) }}</div>
+                            <div class="col-uploader">
+                                <span class="uploader-name">👤 {{ file.uploader }}</span>
+                            </div>
+                            <div class="col-date">{{ formatDate(file.shared_at || file.upload_time) }}</div>
+                            <div class="col-actions">
+                                <button @click="previewFile(file)" class="list-action-btn primary">👁️</button>
+                                <button @click="downloadFile(file)" class="list-action-btn">💾</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 空状态 -->
+                <div v-if="filteredSharedFiles.length === 0" class="empty-state modern-empty">
+                    <div class="empty-illustration">
+                        <div class="empty-world">🌍</div>
+                        <div class="empty-share-icons">🤝📤🔗</div>
+                    </div>
+                    <h3 class="empty-title">{{ sharedFilter ? '未找到匹配的分享文件' : '等待精彩分享' }}</h3>
+                    <p class="empty-description">
+                        {{ sharedFilter ? '尝试调整搜索条件或筛选器' : '社区用户还没有分享文件，成为第一个分享者吧！' }}
+                    </p>
+                    <div class="empty-actions">
+                        <button v-if="user" @click="currentView = 'myfiles'" class="empty-action-btn">
+                            📁 去分享文件
+                        </button>
+                        <button v-if="!user" @click="showLoginModal = true" class="empty-action-btn secondary">
+                            🔑 登录后分享
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 首页视图 -->
+            <div v-if="currentView === 'home'" class="home-view">
+                <div class="hero-section">
+                    <div class="hero-content">
+                        <h1 class="hero-title">🎉 欢迎来到 g00j个人网盘</h1>
+                        <p class="hero-subtitle">现代化的个人文件存储与分享平台，让文件管理变得简单而优雅</p>
+                        <div class="hero-actions">
+                            <button v-if="!user" @click="showLoginModal = true" class="hero-btn primary">
+                                🔑 立即登录
+                            </button>
+                            <button v-if="!user" @click="showLoginModal = true; showRegisterForm = true" class="hero-btn secondary">
+                                📋 免费注册
+                            </button>
+                            <button v-if="user" @click="currentView = 'myfiles'" class="hero-btn primary">
+                                📁 我的文件
+                            </button>
+                            <button @click="currentView = 'shared'" class="hero-btn secondary">
+                                🌍 浏览分享
+                            </button>
+                        </div>
+                    </div>
+                    <div class="hero-image">
+                        <div class="floating-cards">
+                            <div class="float-card card-1">📄</div>
+                            <div class="float-card card-2">🖼️</div>
+                            <div class="float-card card-3">🎬</div>
+                            <div class="float-card card-4">📊</div>
+                            <div class="float-card card-5">🎵</div>
+                            <div class="float-card card-6">📦</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-section">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">📁</div>
+                            <div class="stat-info">
+                                <h3>{{ totalFiles }}</h3>
+                                <p>共享文件</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">👥</div>
+                            <div class="stat-info">
+                                <h3>{{ onlineUsers }}</h3>
+                                <p>在线用户</p>
+                            </div>
+                        </div>
+                        <div class="stat-card" v-if="systemStatus">
+                            <div class="stat-icon">💾</div>
+                            <div class="stat-info">
+                                <h3>{{ parseFloat(systemStatus.disk_usage || 0).toFixed(1) }}%</h3>
+                                <p>磁盘使用率</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">🌟</div>
+                            <div class="stat-info">
+                                <h3>1GB</h3>
+                                <p>免费空间</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="features-section">
+                    <h2 class="section-title">✨ 核心功能</h2>
+                    <div class="features-grid">
+                        <div class="feature-card">
+                            <div class="feature-icon">📁</div>
+                            <h3>个人文件管理</h3>
+                            <p>1GB免费存储空间，支持多种文件格式上传，智能分类管理</p>
+                            <ul class="feature-list">
+                                <li>🚀 拖拽上传</li>
+                                <li>👁️ 在线预览</li>
+                                <li>📊 存储监控</li>
+                            </ul>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-icon">🌍</div>
+                            <h3>便捷分享</h3>
+                            <p>一键分享文件给其他用户，灵活控制分享权限</p>
+                            <ul class="feature-list">
+                                <li>🔄 一键分享</li>
+                                <li>🔒 权限控制</li>
+                                <li>📈 分享统计</li>
+                            </ul>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-icon">🔒</div>
+                            <h3>安全可靠</h3>
+                            <p>文件私有存储，完全掌控分享权限，数据安全有保障</p>
+                            <ul class="feature-list">
+                                <li>🛡️ 数据加密</li>
+                                <li>👤 用户隔离</li>
+                                <li>📝 操作日志</li>
+                            </ul>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-icon">📱</div>
+                            <h3>响应式设计</h3>
+                            <p>完美适配桌面和移动设备，随时随地访问您的文件</p>
+                            <ul class="feature-list">
+                                <li>💻 桌面优化</li>
+                                <li>📱 移动适配</li>
+                                <li>⚡ 快速响应</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="recent-section" v-if="recentFiles.length > 0">
+                    <h2 class="section-title">📋 最新分享</h2>
+                    <div class="recent-grid">
+                        <div v-for="file in recentFiles" :key="file.id" class="recent-card">
+                            <div class="file-icon">{{ getFileIcon(file.filename) }}</div>
                             <div class="file-info">
                                 <h4>{{ file.filename }}</h4>
-                                <p>{{ formatFileSize(file.size) }} · {{ formatDate(file.upload_time) }}</p>
+                                <p>{{ formatFileSize(file.size) }} · {{ file.uploader }}</p>
+                                <span class="upload-time">{{ formatDate(file.upload_time) }}</span>
+                            </div>
+                            <div class="file-actions">
+                                <button @click="previewFile(file)" class="action-btn preview-btn">👁️</button>
+                                <button @click="downloadFile(file)" class="action-btn download-btn">💾</button>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 文件管理视图 -->
-            <div v-if="currentView === 'files'" class="files-view">
-                <div class="files-header">
-                    <h2>📂 文件管理</h2>
-                    <div class="files-actions">
-                        <select v-model="currentCategory" @change="loadFiles">
-                            <option value="">所有文件</option>
-                            <option value="videos">视频文件</option>
-                            <option value="images">图片文件</option>
-                            <option value="documents">文档文件</option>
-                            <option value="others">其他文件</option>
-                        </select>
-                        <button v-if="user" @click="showUploadModal = true" class="upload-btn">
-                            📤 上传文件
-                        </button>
+            <!-- 未登录状态的简化欢迎页面 -->
+            <div v-if="!user && currentView !== 'shared' && currentView !== 'home'" class="welcome-view">
+                <div class="welcome-content">
+                    <h2>🎉 欢迎使用 g00j个人网盘</h2>
+                    <p class="welcome-desc">安全便捷的个人文件存储与分享平台</p>
+                    
+                    <div class="welcome-actions">
+                        <button @click="currentView = 'home'" class="primary-btn">🏠 返回首页</button>
+                        <button @click="currentView = 'shared'" class="secondary-btn">🌍 浏览分享</button>
                     </div>
-                </div>
-
-                <div class="files-list">
-                    <div v-for="file in files" :key="file.id" class="file-item">
-                        <div class="file-icon">{{ getFileIcon(file.category) }}</div>
-                        <div class="file-details">
-                            <h4>{{ file.filename }}</h4>
-                            <p>{{ formatFileSize(file.size) }} · 上传者: {{ file.uploader }} · {{ formatDate(file.upload_time) }}</p>
-                        </div>
-                        <div class="file-actions">
-                            <button @click="previewFile(file)" class="preview-btn">👁️ 预览</button>
-                            <button v-if="user" @click="downloadFile(file)" class="download-btn">💾 下载</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 分页 -->
-                <div v-if="pagination.pages > 1" class="pagination">
-                    <button @click="changePage(pagination.page - 1)" :disabled="pagination.page <= 1">
-                        ⬅️ 上一页
-                    </button>
-                    <span>第 {{ pagination.page }} 页 / 共 {{ pagination.pages }} 页</span>
-                    <button @click="changePage(pagination.page + 1)" :disabled="pagination.page >= pagination.pages">
-                        下一页 ➡️
-                    </button>
                 </div>
             </div>
 
@@ -224,6 +577,7 @@
                                 <span>用户名</span>
                                 <span>角色</span>
                                 <span>注册时间</span>
+                                <span>存储使用</span>
                                 <span>状态</span>
                                 <span>操作</span>
                             </div>
@@ -232,6 +586,7 @@
                                 <span>{{ user.username }}</span>
                                 <span>{{ user.role }}</span>
                                 <span>{{ formatDate(user.created_at) }}</span>
+                                <span>{{ formatFileSize(user.storage_used || 0) }} / {{ formatFileSize(user.storage_quota || 1073741824) }}</span>
                                 <span>{{ user.active ? '活跃' : '禁用' }}</span>
                                 <span>
                                     <button v-if="user.id !== 1" @click="deleteUser(user.id)" class="danger-btn">
@@ -253,6 +608,7 @@
                                 <span>分类</span>
                                 <span>大小</span>
                                 <span>上传者</span>
+                                <span>分享状态</span>
                                 <span>上传时间</span>
                                 <span>操作</span>
                             </div>
@@ -262,6 +618,10 @@
                                 <span>{{ file.category }}</span>
                                 <span>{{ formatFileSize(file.size) }}</span>
                                 <span>{{ file.uploader }}</span>
+                                <span>
+                                    <span v-if="file.is_shared" class="shared-badge">🌍 已分享</span>
+                                    <span v-else class="private-badge">🔒 私有</span>
+                                </span>
                                 <span>{{ formatDate(file.upload_time) }}</span>
                                 <span>
                                     <button @click="deleteAdminFile(file.id)" class="danger-btn">
@@ -280,11 +640,12 @@
         <div v-if="showLoginModal" class="modal-overlay" @click="showLoginModal = false">
             <div class="modal" @click.stop>
                 <div class="modal-header">
-                    <h3>🔑 用户登录</h3>
-                    <button @click="showLoginModal = false" class="close-btn">✖️</button>
+                    <h3>{{ showRegisterForm ? '📝 用户注册' : '🔑 用户登录' }}</h3>
+                    <button @click="showLoginModal = false; showRegisterForm = false" class="close-btn">✖️</button>
                 </div>
                 <div class="modal-body">
-                    <form @submit.prevent="login">
+                    <!-- 登录表单 -->
+                    <form v-if="!showRegisterForm" @submit.prevent="login">
                         <div class="form-group">
                             <label>用户名:</label>
                             <input v-model="loginForm.username" type="text" required>
@@ -301,15 +662,16 @@
                         </div>
                     </form>
 
+                    <!-- 注册表单 -->
                     <form v-if="showRegisterForm" @submit.prevent="register" class="register-form">
                         <h4>📝 用户注册</h4>
                         <div class="form-group">
-                            <label>用户名:</label>
-                            <input v-model="registerForm.username" type="text" required>
+                            <label>用户名 (最少3个字符):</label>
+                            <input v-model="registerForm.username" type="text" required minlength="3">
                         </div>
                         <div class="form-group">
-                            <label>密码:</label>
-                            <input v-model="registerForm.password" type="password" required>
+                            <label>密码 (最少6个字符):</label>
+                            <input v-model="registerForm.password" type="password" required minlength="6">
                         </div>
                         <div class="form-actions">
                             <button type="submit" class="submit-btn">📋 注册</button>
@@ -330,26 +692,39 @@
                     <button @click="showUploadModal = false" class="close-btn">✖️</button>
                 </div>
                 <div class="modal-body">
+                    <div class="storage-warning" v-if="storageUsagePercent > 90">
+                        ⚠️ 存储空间不足，剩余 {{ formatFileSize(storageQuota - storageUsed) }}
+                    </div>
+                    
                     <div class="upload-area" @drop="handleFileDrop" @dragover.prevent @dragenter.prevent>
                         <div class="upload-icon">📁</div>
                         <p>拖拽文件到此处或点击选择文件</p>
                         <input type="file" @change="handleFileSelect" ref="fileInput" multiple style="display: none;">
                         <button @click="$refs.fileInput.click()" class="select-btn">选择文件</button>
                     </div>
+                    
                     <div v-if="uploadFiles.length > 0" class="upload-list">
                         <h4>待上传文件:</h4>
                         <div v-for="(file, index) in uploadFiles" :key="index" class="upload-item">
                             <span>{{ file.name }} ({{ formatFileSize(file.size) }})</span>
+                            <select v-model="uploadCategories[index]" class="category-select">
+                                <option value="documents">📄 文档</option>
+                                <option value="images">🖼️ 图片</option>
+                                <option value="videos">🎬 视频</option>
+                                <option value="others">📦 其他</option>
+                            </select>
                             <button @click="removeFile(index)" class="remove-btn">❌</button>
                         </div>
-                        <button @click="uploadSelectedFiles" class="upload-submit-btn">🚀 开始上传</button>
+                        <button @click="uploadSelectedFiles" class="upload-submit-btn" :disabled="uploading">
+                            {{ uploading ? '🔄 上传中...' : '🚀 开始上传' }}
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- 文件预览模态框 -->
-        <div v-if="showPreviewModal" class="modal-overlay" @click="showPreviewModal = false">
+        <div v-if="showPreviewModal && previewFileData" class="modal-overlay" @click="showPreviewModal = false">
             <div class="modal preview-modal" @click.stop>
                 <div class="modal-header">
                     <h3>👁️ 文件预览 - {{ previewFileData.filename }}</h3>
@@ -385,5 +760,4 @@
 
     <script src="/js/app.js"></script>
 </body>
-</html> 
 </html> 

@@ -79,10 +79,10 @@ sudo systemctl start 112-share
 ### 4. 配置防火墙
 ```bash
 # Ubuntu
-sudo ufw allow 8080/tcp
+sudo ufw allow 80/tcp
 
 # CentOS
-sudo firewall-cmd --permanent --add-port=8080/tcp
+sudo firewall-cmd --permanent --add-port=80/tcp
 sudo firewall-cmd --reload
 ```
 
@@ -111,7 +111,7 @@ server {
     client_max_body_size 100M;
 
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:80;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -209,7 +209,7 @@ sudo systemctl start 112-share
 sudo journalctl -u 112-share --no-pager
 
 # 检查端口占用
-sudo netstat -tlnp | grep 8080
+sudo netstat -tlnp | grep 80
 
 # 手动启动调试
 cd /path/to/SHARE
@@ -232,7 +232,7 @@ rm -rf build bin obj
 
 - **GitHub**: https://github.com/baixie-g/SHARE
 - **默认管理员**: admin / admin123
-- **默认端口**: 8080
+- **默认端口**: 80
 
 ---
 

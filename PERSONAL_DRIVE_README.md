@@ -73,7 +73,7 @@ make clean && make
 ./start.sh
 
 # 访问地址
-http://localhost:8080
+http://localhost:80
 ```
 
 ### 默认账户
@@ -295,7 +295,7 @@ http://localhost:8080
    ```
 
 3. **访问系统**
-   - 网址: http://localhost:8080
+   - 网址: http://localhost:80
    - 默认管理员: admin / admin123
 
 ## 📊 技术栈

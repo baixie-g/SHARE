@@ -145,7 +145,7 @@ fi
 
 echo
 echo "正在启动服务器..."
-echo "服务器地址: http://localhost:8080"
+echo "服务器地址: http://localhost:80"
 echo "默认管理员: admin / admin123"
 echo
 echo "按 Ctrl+C 停止服务器"

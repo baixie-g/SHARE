@@ -1007,7 +1007,7 @@ int main() {
     }
     
     // 启动HTTP服务器
-    g_server = new HttpServer(8080);
+    g_server = new HttpServer(80);
     
     // 设置静态文件目录
     g_server->setStaticRoot("static");
@@ -1037,7 +1037,7 @@ int main() {
     g_server->add_route("/api/user/storage", handle_user_storage_route);
     g_server->add_route("/api/admin/files", handle_admin_files_route);
     
-    std::cout << "服务器启动成功，访问地址: http://localhost:8080" << std::endl;
+    std::cout << "服务器启动成功，访问地址: http://localhost:80" << std::endl;
     std::cout << "默认管理员账户: admin / admin123" << std::endl;
     
     // 启动服务器

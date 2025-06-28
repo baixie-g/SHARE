@@ -94,7 +94,7 @@ build_project() {
 configure_firewall() {
     echo -e "${YELLOW}正在配置防火墙...${NC}"
     
-    PORT=${1:-8080}
+    PORT=${1:-80}
     
     if command -v ufw &> /dev/null; then
         # Ubuntu防火墙
@@ -148,8 +148,8 @@ configure_nginx() {
     echo -e "${YELLOW}正在配置Nginx反向代理...${NC}"
     
     read -p "请输入域名或服务器IP地址: " server_name
-    read -p "应用端口 (默认8080): " app_port
-    app_port=${app_port:-8080}
+    read -p "应用端口 (默认80): " app_port
+    app_port=${app_port:-80}
     
     sudo tee /etc/nginx/sites-available/112-share > /dev/null <<EOF
 server {
@@ -199,7 +199,7 @@ start_service() {
         echo -e "🎉 部署完成！"
         echo -e "=========================================="
         echo -e "📡 服务状态: $(sudo systemctl is-active 112-share)"
-        echo -e "🌐 访问地址: http://$SERVER_IP:8080"
+        echo -e "🌐 访问地址: http://$SERVER_IP:80"
         echo -e "👤 管理员账户: admin / admin123"
         echo -e "📝 修改密码: 登录后请及时修改默认密码"
         echo -e "🔧 服务管理:"

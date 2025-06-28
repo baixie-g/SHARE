@@ -983,14 +983,14 @@ void handle_admin_files_route(const HttpRequest& request, HttpResponse& response
 }
 
 int main() {
-    std::cout << "启动 g00j小站 文件共享系统..." << std::endl;
+    std::cout << "启动 112小站 文件共享系统..." << std::endl;
     
     // 设置信号处理
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
     
     // 初始化数据库
-    g_database = new Database("bin/g00j_share.db");
+    g_database = new Database("bin/112_share.db");
     if (!g_database->initialize()) {
         std::cerr << "数据库初始化失败" << std::endl;
         return 1;

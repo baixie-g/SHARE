@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(g00j_file_share)
+project(112_file_share)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,10 +28,10 @@ set(SOURCES
 )
 
 # 创建可执行文件
-add_executable(g00j_file_share ${SOURCES})
+add_executable(112_file_share ${SOURCES})
 
 # 链接库
-target_link_libraries(g00j_file_share 
+target_link_libraries(112_file_share 
     ${SQLITE3_LIBRARIES}
     OpenSSL::SSL
     OpenSSL::Crypto
@@ -39,4 +39,4 @@ target_link_libraries(g00j_file_share
 )
 
 # 编译选项
-target_compile_options(g00j_file_share PRIVATE ${SQLITE3_CFLAGS_OTHER}) 
+target_compile_options(112_file_share PRIVATE ${SQLITE3_CFLAGS_OTHER}) 

@@ -54,7 +54,7 @@ struct Session {
  */
 class Database {
 public:
-    Database(const std::string& db_path = "g00j_share.db");
+    Database(const std::string& db_path = "112_share.db");
     ~Database();
 
     // 初始化数据库

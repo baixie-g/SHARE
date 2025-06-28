@@ -1,4 +1,4 @@
-# 🚀 G00J 文件共享系统 - 服务器部署指南
+# 🚀 112 文件共享系统 - 服务器部署指南
 
 ## 📋 快速部署
 
@@ -54,16 +54,16 @@ chmod +x build.sh start.sh
 
 ### 3. 配置systemd服务
 ```bash
-sudo tee /etc/systemd/system/g00j-share.service > /dev/null <<EOF
+sudo tee /etc/systemd/system/112-share.service > /dev/null <<EOF
 [Unit]
-Description=G00J File Share Server
+Description=112 File Share Server
 After=network.target
 
 [Service]
 Type=simple
 User=$USER
 WorkingDirectory=$(pwd)
-ExecStart=$(pwd)/bin/g00j_file_share
+ExecStart=$(pwd)/bin/112_file_share
 Restart=always
 RestartSec=10
 
@@ -72,8 +72,8 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable g00j-share
-sudo systemctl start g00j-share
+sudo systemctl enable 112-share
+sudo systemctl start 112-share
 ```
 
 ### 4. 配置防火墙
@@ -99,7 +99,7 @@ sudo yum install nginx
 
 ### 2. 配置虚拟主机
 ```bash
-sudo nano /etc/nginx/sites-available/g00j-share
+sudo nano /etc/nginx/sites-available/112-share
 ```
 
 添加配置：
@@ -122,7 +122,7 @@ server {
 
 ### 3. 启用配置
 ```bash
-sudo ln -s /etc/nginx/sites-available/g00j-share /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/112-share /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl restart nginx
 ```
@@ -145,22 +145,22 @@ echo "0 12 * * * /usr/bin/certbot renew --quiet" | sudo crontab -
 
 ```bash
 # 查看服务状态
-sudo systemctl status g00j-share
+sudo systemctl status 112-share
 
 # 启动服务
-sudo systemctl start g00j-share
+sudo systemctl start 112-share
 
 # 停止服务
-sudo systemctl stop g00j-share
+sudo systemctl stop 112-share
 
 # 重启服务
-sudo systemctl restart g00j-share
+sudo systemctl restart 112-share
 
 # 查看日志
-sudo journalctl -u g00j-share -f
+sudo journalctl -u 112-share -f
 
 # 查看最近100行日志
-sudo journalctl -u g00j-share -n 100
+sudo journalctl -u 112-share -n 100
 ```
 
 ## 📊 系统要求
@@ -180,7 +180,7 @@ sudo journalctl -u g00j-share -n 100
 ## 🛡️ 安全建议
 
 1. **修改默认密码**: 部署完成后立即修改admin账户密码
-2. **定期备份**: 备份数据库文件 `bin/g00j_share.db`
+2. **定期备份**: 备份数据库文件 `bin/112_share.db`
 3. **更新系统**: 定期更新操作系统和依赖
 4. **监控日志**: 定期检查系统和应用日志
 5. **限制访问**: 使用防火墙限制不必要的端口访问
@@ -189,7 +189,7 @@ sudo journalctl -u g00j-share -n 100
 
 ```bash
 # 停止服务
-sudo systemctl stop g00j-share
+sudo systemctl stop 112-share
 
 # 拉取最新代码
 git pull origin master
@@ -198,7 +198,7 @@ git pull origin master
 ./build.sh
 
 # 启动服务
-sudo systemctl start g00j-share
+sudo systemctl start 112-share
 ```
 
 ## 📞 问题排查
@@ -206,14 +206,14 @@ sudo systemctl start g00j-share
 ### 服务启动失败
 ```bash
 # 查看详细错误信息
-sudo journalctl -u g00j-share --no-pager
+sudo journalctl -u 112-share --no-pager
 
 # 检查端口占用
 sudo netstat -tlnp | grep 8080
 
 # 手动启动调试
 cd /path/to/SHARE
-./bin/g00j_file_share
+./bin/112_file_share
 ```
 
 ### 编译错误

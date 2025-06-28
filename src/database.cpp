@@ -118,14 +118,41 @@ bool Database::createTables() {
 }
 
 bool Database::upgradeTables() {
+    // 检查列是否存在的辅助函数
+    auto columnExists = [this](const std::string& table, const std::string& column) -> bool {
+        std::string sql = "SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?";
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+            return false;
+        }
+        sqlite3_bind_text(stmt, 1, table.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, column.c_str(), -1, SQLITE_STATIC);
+        bool exists = false;
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            exists = sqlite3_column_int(stmt, 0) > 0;
+        }
+        sqlite3_finalize(stmt);
+        return exists;
+    };
+
     // 为用户表添加配额字段
-    execute("ALTER TABLE users ADD COLUMN storage_quota INTEGER DEFAULT 1073741824");
-    execute("ALTER TABLE users ADD COLUMN storage_used INTEGER DEFAULT 0");
+    if (!columnExists("users", "storage_quota")) {
+        execute("ALTER TABLE users ADD COLUMN storage_quota INTEGER DEFAULT 1073741824");
+    }
+    if (!columnExists("users", "storage_used")) {
+        execute("ALTER TABLE users ADD COLUMN storage_used INTEGER DEFAULT 0");
+    }
     
     // 为文件表添加分享字段
-    execute("ALTER TABLE files ADD COLUMN is_shared INTEGER DEFAULT 0");
-    execute("ALTER TABLE files ADD COLUMN shared_at DATETIME NULL");
-    execute("ALTER TABLE files ADD COLUMN description TEXT DEFAULT ''");
+    if (!columnExists("files", "is_shared")) {
+        execute("ALTER TABLE files ADD COLUMN is_shared INTEGER DEFAULT 0");
+    }
+    if (!columnExists("files", "shared_at")) {
+        execute("ALTER TABLE files ADD COLUMN shared_at DATETIME NULL");
+    }
+    if (!columnExists("files", "description")) {
+        execute("ALTER TABLE files ADD COLUMN description TEXT DEFAULT ''");
+    }
     
     // 更新现有文件的默认分享状态
     execute("UPDATE files SET is_public = 0, is_shared = 0 WHERE is_public = 1");

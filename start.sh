@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# g00j小站 启动脚本
+# 112小站 启动脚本
 
-echo "=== g00j小站 文件共享系统 ==="
+echo "=== 112小站 文件共享系统 ==="
 echo "正在启动服务器..."
 
 # 检查可执行文件是否存在
-if [ ! -f "./build/bin/g00j_file_share" ]; then
+if [ ! -f "./build/bin/112_file_share" ]; then
     echo "错误: 可执行文件不存在"
     echo "请先运行构建脚本: ./build.sh"
     exit 1
@@ -26,11 +26,11 @@ echo "✓ 共享文件目录已创建"
 # 创建默认文档
 if [ ! -f "shared/documents/README_API.md" ]; then
     cat > shared/documents/README_API.md << 'EOF'
-# g00j小站 API 文档
+# 112小站 API 文档
 
 ## 简介
 
-g00j小站是一个轻量级的文件共享系统，提供以下主要功能：
+112小站是一个轻量级的文件共享系统，提供以下主要功能：
 
 - 文件上传和下载
 - 在线文件预览（视频、图片、文档）
@@ -100,14 +100,14 @@ g00j小站是一个轻量级的文件共享系统，提供以下主要功能：
 
 ---
 
-欢迎使用 g00j小站！
+欢迎使用 112小站！
 EOF
     echo "✓ API 文档已创建"
 fi
 
 if [ ! -f "shared/documents/welcome.txt" ]; then
     cat > shared/documents/welcome.txt << 'EOF'
-欢迎使用 g00j小站 文件共享系统！
+欢迎使用 112小站 文件共享系统！
 
 这是一个轻量级的文件共享平台，具有以下特点：
 
@@ -138,7 +138,7 @@ if [ ! -f "shared/documents/welcome.txt" ]; then
 
 享受您的文件共享体验！
 
---- g00j小站开发团队
+--- 112小站开发团队
 EOF
     echo "✓ 欢迎文档已创建"
 fi
@@ -152,4 +152,4 @@ echo "按 Ctrl+C 停止服务器"
 echo
 
 # 启动服务器
-./build/bin/g00j_file_share 
+./build/bin/112_file_share 

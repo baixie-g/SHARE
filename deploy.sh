@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # ===================================================
-# G00J 文件共享系统 - 服务器部署脚本
+# 112 文件共享系统 - 服务器部署脚本
 # ===================================================
 
 set -e  # 遇到错误立即退出
 
 echo "=========================================="
-echo "🚀 G00J 文件共享系统部署脚本"
+echo "🚀 112 文件共享系统部署脚本"
 echo "=========================================="
 
 # 颜色定义
@@ -119,16 +119,16 @@ create_systemd_service() {
     CURRENT_DIR=$(pwd)
     SERVICE_USER=${1:-$USER}
     
-    sudo tee /etc/systemd/system/g00j-share.service > /dev/null <<EOF
+    sudo tee /etc/systemd/system/112-share.service > /dev/null <<EOF
 [Unit]
-Description=G00J File Share Server
+Description=112 File Share Server
 After=network.target
 
 [Service]
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$CURRENT_DIR
-ExecStart=$CURRENT_DIR/bin/g00j_file_share
+ExecStart=$CURRENT_DIR/bin/112_file_share
 Restart=always
 RestartSec=10
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
@@ -138,7 +138,7 @@ WantedBy=multi-user.target
 EOF
 
     sudo systemctl daemon-reload
-    sudo systemctl enable g00j-share
+    sudo systemctl enable 112-share
     
     echo -e "${GREEN}✅ Systemd服务创建完成${NC}"
 }
@@ -151,7 +151,7 @@ configure_nginx() {
     read -p "应用端口 (默认8080): " app_port
     app_port=${app_port:-8080}
     
-    sudo tee /etc/nginx/sites-available/g00j-share > /dev/null <<EOF
+    sudo tee /etc/nginx/sites-available/112-share > /dev/null <<EOF
 server {
     listen 80;
     server_name $server_name;
@@ -174,7 +174,7 @@ server {
 EOF
 
     # 启用站点
-    sudo ln -sf /etc/nginx/sites-available/g00j-share /etc/nginx/sites-enabled/
+    sudo ln -sf /etc/nginx/sites-available/112-share /etc/nginx/sites-enabled/
     
     # 测试配置
     sudo nginx -t && sudo systemctl restart nginx
@@ -186,10 +186,10 @@ EOF
 start_service() {
     echo -e "${YELLOW}正在启动服务...${NC}"
     
-    sudo systemctl start g00j-share
+    sudo systemctl start 112-share
     sleep 2
     
-    if sudo systemctl is-active --quiet g00j-share; then
+    if sudo systemctl is-active --quiet 112-share; then
         echo -e "${GREEN}✅ 服务启动成功${NC}"
         
         # 获取服务器IP
@@ -198,20 +198,20 @@ start_service() {
         echo -e "${GREEN}=========================================="
         echo -e "🎉 部署完成！"
         echo -e "=========================================="
-        echo -e "📡 服务状态: $(sudo systemctl is-active g00j-share)"
+        echo -e "📡 服务状态: $(sudo systemctl is-active 112-share)"
         echo -e "🌐 访问地址: http://$SERVER_IP:8080"
         echo -e "👤 管理员账户: admin / admin123"
         echo -e "📝 修改密码: 登录后请及时修改默认密码"
         echo -e "🔧 服务管理:"
-        echo -e "   启动: sudo systemctl start g00j-share"
-        echo -e "   停止: sudo systemctl stop g00j-share"
-        echo -e "   重启: sudo systemctl restart g00j-share"
-        echo -e "   状态: sudo systemctl status g00j-share"
-        echo -e "   日志: sudo journalctl -u g00j-share -f"
+        echo -e "   启动: sudo systemctl start 112-share"
+        echo -e "   停止: sudo systemctl stop 112-share"
+        echo -e "   重启: sudo systemctl restart 112-share"
+        echo -e "   状态: sudo systemctl status 112-share"
+        echo -e "   日志: sudo journalctl -u 112-share -f"
         echo -e "==========================================${NC}"
     else
         echo -e "${RED}❌ 服务启动失败${NC}"
-        echo -e "${YELLOW}查看日志: sudo journalctl -u g00j-share${NC}"
+        echo -e "${YELLOW}查看日志: sudo journalctl -u 112-share${NC}"
         exit 1
     fi
 }
@@ -265,7 +265,7 @@ main() {
 # 检查是否为root用户
 if [[ $EUID -eq 0 ]]; then
    echo -e "${RED}❌ 不要使用root用户运行此脚本${NC}"
-   echo -e "${YELLOW}建议创建普通用户：sudo adduser g00j && sudo usermod -aG sudo g00j${NC}"
+   echo -e "${YELLOW}建议创建普通用户：sudo adduser 112 && sudo usermod -aG sudo 112${NC}"
    exit 1
 fi
 

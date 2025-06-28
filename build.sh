@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# g00j小站 构建脚本
+# 112小站 构建脚本
 
-echo "=== g00j小站 文件共享系统 构建脚本 ==="
+echo "=== 112小站 文件共享系统 构建脚本 ==="
 echo "正在检查系统依赖..."
 
 # 检查必要的依赖
@@ -93,9 +93,9 @@ cd ..
 
 echo
 echo "=== 构建完成 ==="
-echo "可执行文件: ./bin/g00j_file_share"
+echo "可执行文件: ./bin/112_file_share"
 echo "静态文件目录: ./static/"
 echo "共享文件目录: ./shared/"
 echo
 echo "运行命令: ./start.sh"
-echo "或者直接运行: ./bin/g00j_file_share" 
+echo "或者直接运行: ./bin/112_file_share" 

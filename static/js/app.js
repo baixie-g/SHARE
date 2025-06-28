@@ -1,4 +1,4 @@
-// g00j个人网盘 Vue3 前端应用
+// 112网盘 Vue3 前端应用
 
 const { createApp } = Vue;
 

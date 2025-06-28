@@ -1,4 +1,4 @@
-// g00j小站 Vue3 前端应用
+// g00j个人网盘 Vue3 前端应用
 
 const { createApp } = Vue;
 
@@ -6,72 +6,72 @@ createApp({
     data() {
         return {
             // 当前视图
-            currentView: 'home',
+            currentView: 'home', // 默认显示首页
             
             // 用户信息
             user: null,
             
-            // 文件相关
-            files: [],
-            recentFiles: [],
-            loading: false,
-            selectedCategory: '',
-            pagination: {
-                page: 1,
-                per_page: 20,
-                total: 0,
-                total_pages: 0
-            },
+            // 我的文件相关
+            myFiles: [],
+            fileFilter: '',
+            fileCategory: '',
             
-            // 系统监控
+            // 分享文件相关
+            sharedFiles: [],
+            sharedFilter: '',
+            sharedCategory: '',
+            sharedSortBy: 'latest',
+            sharedViewMode: 'grid',
+            
+            // 首页数据
+            recentFiles: [],
+            totalFiles: 0,
+            onlineUsers: 1,
+            
+            // 视图模式
+            viewMode: 'grid',
+            
+            // 存储信息
+            storageUsed: 0,
+            storageQuota: 1073741824, // 1GB
+            
+            // 文件上传
+            uploadFiles: [],
+            uploadCategories: [],
+            uploading: false,
+            
+            // 系统监控 (管理员功能)
             systemStatus: {},
             processes: [],
             processFilter: '',
             processSortBy: 'cpu',
-            sortOrder: 'desc',
+            
+            // 管理面板数据
+            adminUsers: [],
+            adminFiles: [],
             
             // 模态框状态
             showLoginModal: false,
             showUploadModal: false,
             showPreviewModal: false,
-            isRegister: false,
+            showRegisterForm: false,
             
             // 表单数据
             loginForm: {
                 username: '',
                 password: ''
             },
-            
-            // 文件上传
-            uploadFiles: [],
-            uploading: false,
-            
-            // 文件预览
-            previewFile: {},
-            previewContent: '',
-            
-            // 消息提示
-            message: '',
-            messageType: 'success',
-            
-            // 注册表单
             registerForm: {
                 username: '',
                 password: ''
             },
             
-            // 统计数据
-            totalFiles: 0,
-            onlineUsers: 1,
-            
-            // 管理面板数据
-            adminUsers: [],
-            adminFiles: [],
-            
             // 预览相关
-            showPreviewModal: false,
             previewFileData: null,
-            previewContent: ''
+            previewContent: '',
+            
+            // 消息提示
+            message: null
         };
     },
     
@@ -82,24 +82,158 @@ createApp({
         // 检查登录状态
         await this.checkLoginStatus();
         
-        // 加载最新文件
-        await this.loadFiles();
+        // 加载数据
+        await this.loadInitialData();
         
-        // 如果是管理员，加载系统状态
+        // 定期刷新系统状态 (管理员)
         if (this.user && this.user.role === 'admin') {
-            await this.loadSystemStatus();
+            setInterval(() => {
+                if (this.currentView === 'monitor') {
+                    this.loadSystemStatus();
+                }
+            }, 5000);
         }
+    },
+    
+    computed: {
+        // 存储使用率百分比
+        storageUsagePercent() {
+            return this.storageQuota > 0 ? (this.storageUsed / this.storageQuota) * 100 : 0;
+        },
         
-        // 定期刷新系统状态
-        setInterval(() => {
-            if (this.user && this.user.role === 'admin') {
-                this.loadSystemStatus();
+        // 过滤后的我的文件
+        filteredMyFiles() {
+            let files = this.myFiles;
+            
+            // 按分类过滤
+            if (this.fileCategory) {
+                files = files.filter(file => file.category === this.fileCategory);
             }
-        }, 5000);
+            
+            // 按关键词过滤
+            if (this.fileFilter) {
+                const filter = this.fileFilter.toLowerCase();
+                files = files.filter(file => 
+                    file.filename.toLowerCase().includes(filter)
+                );
+            }
+            
+            return files;
+        },
+        
+        // 过滤后的分享文件
+        filteredSharedFiles() {
+            let files = this.sharedFiles;
+            
+            // 按分类过滤
+            if (this.sharedCategory) {
+                files = files.filter(file => file.category === this.sharedCategory);
+            }
+            
+            // 按关键词过滤
+            if (this.sharedFilter) {
+                const filter = this.sharedFilter.toLowerCase();
+                files = files.filter(file => 
+                    file.filename.toLowerCase().includes(filter) ||
+                    file.uploader.toLowerCase().includes(filter)
+                );
+            }
+            
+            return files;
+        },
+        
+        // 过滤后的进程列表 (管理员功能)
+        filteredProcesses() {
+            if (!this.processFilter) {
+                return this.processes;
+            }
+            
+            const filter = this.processFilter.toLowerCase();
+            return this.processes.filter(process => 
+                process.name.toLowerCase().includes(filter) ||
+                process.user.toLowerCase().includes(filter) ||
+                process.pid.includes(filter)
+            );
+        }
+    },
+    
+    watch: {
+        currentView(newView) {
+            console.log('🔄 视图切换到:', newView, '当前用户:', this.user);
+            
+            if (newView === 'home') {
+                this.loadHomeData();
+            } else if (newView === 'myfiles' && this.user) {
+                this.loadMyFiles();
+                this.loadUserStorage();
+            } else if (newView === 'shared') {
+                this.loadSharedFiles();
+            } else if (newView === 'monitor' && this.user?.role === 'admin') {
+                this.loadSystemStatus();
+                this.loadProcesses();
+            } else if (newView === 'admin' && this.user?.role === 'admin') {
+                console.log('👑 管理员进入管理面板，开始加载数据...');
+                this.loadAdminPanel();
+            } else {
+                console.log('⚠️ 视图切换条件不满足 - 视图:', newView, '用户角色:', this.user?.role);
+            }
+        }
     },
     
     methods: {
-        // 用户认证
+        // === 初始化和用户管理 ===
+        
+        async loadInitialData() {
+            // 根据当前视图和用户状态加载数据
+            if (this.currentView === 'home') {
+                await this.loadHomeData();
+            } else if (this.currentView === 'shared') {
+                await this.loadSharedFiles();
+            }
+            
+            if (this.user) {
+                if (this.currentView === 'myfiles') {
+                    await this.loadMyFiles();
+                    await this.loadUserStorage();
+                } else if (this.currentView === 'admin' && this.user.role === 'admin') {
+                    await this.loadAdminPanel();
+                } else if (this.currentView === 'monitor' && this.user.role === 'admin') {
+                    await this.loadSystemStatus();
+                    await this.loadProcesses();
+                }
+            }
+        },
+        
+        async checkLoginStatus() {
+            // 检查是否有session cookie
+            const cookies = document.cookie.split(';');
+            const sessionCookie = cookies.find(cookie => cookie.trim().startsWith('session_id='));
+            
+            if (sessionCookie && sessionCookie.trim() !== 'session_id=') {
+                try {
+                    const response = await axios.get('/api/user/profile');
+                    if (response.data.success) {
+                        this.user = response.data.data;
+                        console.log('🔑 Session restored for user:', this.user.username, '角色:', this.user.role);
+                        
+                        // 如果用户已登录，但仍在首页，保持首页
+                        if (this.currentView === 'shared') {
+                            this.currentView = 'home';
+                        }
+                    } else {
+                        document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                        this.user = null;
+                    }
+                } catch (error) {
+                    console.log('Session validation failed:', error.message);
+                    document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                    this.user = null;
+                }
+            } else {
+                this.user = null;
+            }
+        },
+        
         async login() {
             try {
                 const formData = new URLSearchParams();
@@ -114,24 +248,34 @@ createApp({
                 });
                 
                 if (response.data.success) {
-                    // 设置用户信息
-                    this.user = {
-                        username: this.loginForm.username,
-                        role: this.loginForm.username === 'admin' ? 'admin' : 'user'
-                    };
+                    // 登录成功后，获取真实的用户信息
+                    try {
+                        const profileResponse = await axios.get('/api/user/profile');
+                        if (profileResponse.data.success) {
+                            this.user = profileResponse.data.data;
+                        } else {
+                            // 如果获取用户信息失败，使用基本信息
+                            this.user = {
+                                username: this.loginForm.username,
+                                role: this.loginForm.username === 'admin' ? 'admin' : 'user'
+                            };
+                        }
+                    } catch (error) {
+                        // 如果获取用户信息失败，使用基本信息
+                        this.user = {
+                            username: this.loginForm.username,
+                            role: this.loginForm.username === 'admin' ? 'admin' : 'user'
+                        };
+                    }
                     
                     this.showMessage('登录成功！', 'success');
                     this.showLoginModal = false;
-                    this.isRegister = false;
-                    
-                    // 清空登录表单
-                    const savedUsername = this.loginForm.username;
+                    this.showRegisterForm = false;
                     this.loginForm = { username: '', password: '' };
                     
-                    // 如果是管理员，加载系统状态
-                    if (this.user.role === 'admin') {
-                        await this.loadSystemStatus();
-                    }
+                    // 登录后返回首页
+                    this.currentView = 'home';
+                    await this.loadHomeData();
                 } else {
                     this.showMessage(response.data.message || '登录失败', 'error');
                 }
@@ -158,7 +302,7 @@ createApp({
                     this.showRegisterForm = false;
                     this.registerForm = { username: '', password: '' };
                 } else {
-                    this.showMessage(response.data.error || '注册失败', 'error');
+                    this.showMessage(response.data.message || '注册失败', 'error');
                 }
             } catch (error) {
                 this.showMessage('网络错误，请重试', 'error');
@@ -169,109 +313,211 @@ createApp({
         async logout() {
             try {
                 await axios.post('/api/logout');
-                this.user = null;
-                this.showMessage('已登出', 'info');
-                this.currentView = 'home';
-            } catch (error) {
-                this.showMessage('登出失败', 'error');
-            }
-        },
-        
-        async checkLoginStatus() {
-            // 检查是否有session cookie
-            const cookies = document.cookie.split(';');
-            const sessionCookie = cookies.find(cookie => cookie.trim().startsWith('session_id='));
-            
-            if (sessionCookie && sessionCookie.trim() !== 'session_id=') {
-                try {
-                    // 通过API验证session是否有效
-                    const response = await axios.get('/api/user/profile');
-                    if (response.data.success) {
-                        // session有效，恢复用户状态
-                        this.user = response.data.data;
-                        console.log('Session restored for user:', this.user.username);
-                        
-                        // 如果是管理员，加载系统状态
-                        if (this.user.role === 'admin') {
-                            await this.loadSystemStatus();
-                        }
-                    } else {
-                        // session无效，清除cookie
-                        document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-                        this.user = null;
-                    }
-                } catch (error) {
-                    // API调用失败，清除session
-                    console.log('Session validation failed:', error.message);
-                    document.cookie = 'session_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-                    this.user = null;
-                }
-            } else {
-                this.user = null;
-            }
-        },
-        
-        // 文件管理
-        async loadFiles() {
-            this.loading = true;
-            try {
-                const params = {
-                    page: this.pagination.page,
-                    category: this.selectedCategory
-                };
                 
-                const response = await axios.get('/api/files', { params });
+                // 清除本地用户状态
+                this.user = null;
+                this.myFiles = [];
+                this.storageUsed = 0;
+                this.storageQuota = 1073741824;
+                
+                // 清除本地存储的session信息（如果有）
+                document.cookie = "session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+                
+                // 重置视图到首页
+                this.currentView = 'home';
+                
+                // 重新加载首页数据
+                await this.loadHomeData();
+                
+                this.showMessage('已成功登出', 'success');
+                
+            } catch (error) {
+                // 即使服务器返回错误，也要清除本地状态
+                this.user = null;
+                this.myFiles = [];
+                this.storageUsed = 0;
+                this.storageQuota = 1073741824;
+                this.currentView = 'home';
+                
+                // 强制清除Cookie
+                document.cookie = "session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+                
+                this.showMessage('已登出', 'info');
+            }
+        },
+        
+        // === 首页数据加载 ===
+        
+        async loadHomeData() {
+            try {
+                // 加载分享文件作为最新文件
+                await this.loadSharedFiles();
+                this.recentFiles = this.sharedFiles.slice(0, 6); // 显示最新6个
+                this.totalFiles = this.sharedFiles.length;
+                
+                // 如果是管理员，加载系统状态
+                if (this.user && this.user.role === 'admin') {
+                    await this.loadSystemStatus();
+                }
+            } catch (error) {
+                console.error('Load home data failed:', error);
+            }
+        },
+        
+        // === 文件管理 ===
+        
+        async loadMyFiles() {
+            if (!this.user) return;
+            
+            try {
+                const response = await axios.get('/api/my-files');
+                if (response.data.success) {
+                    this.myFiles = response.data.data;
+                }
+            } catch (error) {
+                this.showMessage('加载我的文件失败', 'error');
+            }
+        },
+        
+        async loadSharedFiles() {
+            try {
+                const response = await axios.get('/api/shared-files');
+                if (response.data.success) {
+                    this.sharedFiles = response.data.data;
+                }
+            } catch (error) {
+                this.showMessage('加载分享文件失败', 'error');
+            }
+        },
+        
+        async loadUserStorage() {
+            if (!this.user) return;
+            
+            try {
+                const response = await axios.get('/api/user/storage');
+                if (response.data.success) {
+                    const data = response.data.data;
+                    this.storageUsed = data.used;
+                    this.storageQuota = data.quota;
+                }
+            } catch (error) {
+                this.showMessage('加载存储信息失败', 'error');
+            }
+        },
+        
+        async toggleShare(file) {
+            try {
+                const formData = new URLSearchParams();
+                formData.append('file_id', file.id);
+                
+                const response = await axios.post('/api/toggle-share', formData, {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+                });
                 
                 if (response.data.success) {
-                    this.files = response.data.data;
-                    this.pagination = response.data.pagination;
-                    this.totalFiles = this.pagination.total;
+                    file.is_shared = !file.is_shared;
+                    const message = file.is_shared ? '文件已分享' : '已取消分享';
+                    this.showMessage(message, 'success');
                     
-                    // 如果是首页，保存最新文件
-                    if (this.currentView === 'home') {
-                        this.recentFiles = this.files.slice(0, 6);
+                    // 重新加载分享文件列表
+                    if (file.is_shared) {
+                        await this.loadSharedFiles();
                     }
+                } else {
+                    this.showMessage(response.data.message || '操作失败', 'error');
                 }
             } catch (error) {
-                this.showMessage('加载文件失败', 'error');
-            } finally {
-                this.loading = false;
+                this.showMessage('操作失败', 'error');
             }
         },
         
-        changePage(page) {
-            if (page >= 1 && page <= this.pagination.total_pages) {
-                this.pagination.page = page;
-                this.loadFiles();
+        async deleteMyFile(file) {
+            if (!confirm(`确定要删除文件 "${file.filename}" 吗？此操作不可撤销！`)) {
+                return;
+            }
+            
+            try {
+                const formData = new URLSearchParams();
+                formData.append('id', file.id);
+                
+                const response = await axios.post('/api/admin/delete-file', formData, {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+                });
+                
+                if (response.data.success) {
+                    this.showMessage('文件删除成功', 'success');
+                    await this.loadMyFiles();
+                    await this.loadUserStorage();
+                    await this.loadSharedFiles(); // 更新分享列表
+                } else {
+                    this.showMessage(response.data.message || '删除失败', 'error');
+                }
+            } catch (error) {
+                this.showMessage('删除文件失败', 'error');
             }
         },
         
-        // 文件上传
+        // === 文件上传 ===
+        
         handleFileSelect(event) {
             const files = Array.from(event.target.files);
-            this.uploadFiles.push(...files);
+            this.addFilesToUpload(files);
         },
         
-        handleDrop(event) {
+        handleFileDrop(event) {
             event.preventDefault();
             const files = Array.from(event.dataTransfer.files);
-            this.uploadFiles.push(...files);
+            this.addFilesToUpload(files);
         },
         
-        removeUploadFile(index) {
+        addFilesToUpload(files) {
+            files.forEach((file, index) => {
+                this.uploadFiles.push(file);
+                // 智能分类
+                this.uploadCategories.push(this.detectFileCategory(file.name));
+            });
+        },
+        
+        detectFileCategory(filename) {
+            const ext = filename.split('.').pop()?.toLowerCase();
+            
+            if (['txt', 'md', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) {
+                return 'documents';
+            } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext)) {
+                return 'images';
+            } else if (['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm'].includes(ext)) {
+                return 'videos';
+            } else {
+                return 'others';
+            }
+        },
+        
+        removeFile(index) {
             this.uploadFiles.splice(index, 1);
+            this.uploadCategories.splice(index, 1);
         },
         
         async uploadSelectedFiles() {
-            if (this.uploadFiles.length === 0) return;
+            if (this.uploadFiles.length === 0) {
+                this.showMessage('请选择要上传的文件', 'warning');
+                return;
+            }
             
             this.uploading = true;
+            let successCount = 0;
             
-            try {
-                for (const file of this.uploadFiles) {
+            for (let i = 0; i < this.uploadFiles.length; i++) {
+                const file = this.uploadFiles[i];
+                const category = this.uploadCategories[i];
+                
+                try {
                     const formData = new FormData();
                     formData.append('file', file);
-                    formData.append('category', 'documents');  // 默认分类
+                    formData.append('category', category);
                     
                     const response = await axios.post('/api/upload', formData, {
                         headers: {
@@ -280,50 +526,71 @@ createApp({
                     });
                     
                     if (response.data.success) {
-                        this.showMessage(`${file.name} 上传成功！`, 'success');
+                        successCount++;
                     } else {
-                        this.showMessage(`${file.name} 上传失败: ${response.data.message}`, 'error');
+                        this.showMessage(`上传 ${file.name} 失败: ${response.data.message}`, 'error');
                     }
+                } catch (error) {
+                    this.showMessage(`上传 ${file.name} 失败`, 'error');
                 }
-                
-                // 刷新文件列表
-                await this.loadFiles();
-                
-            } catch (error) {
-                this.showMessage('上传失败，请重试', 'error');
-                console.error('Upload error:', error);
-            } finally {
-                this.uploading = false;
+            }
+            
+            this.uploading = false;
+            
+            if (successCount > 0) {
+                this.showMessage(`成功上传 ${successCount} 个文件`, 'success');
                 this.uploadFiles = [];
+                this.uploadCategories = [];
                 this.showUploadModal = false;
+                
+                // 刷新数据
+                await this.loadMyFiles();
+                await this.loadUserStorage();
             }
         },
         
-        // 文件预览
-        async previewFile(file) {
+        // === 文件预览和下载 ===
+        
+        previewFile(file) {
+            console.log('previewFile called with:', file);
+            
+            if (!file) {
+                console.error('No file provided to preview');
+                this.showMessage('预览失败：文件信息无效', 'error');
+                return;
+            }
+            
+            // 先设置基本信息并显示模态框
             this.previewFileData = file;
             this.showPreviewModal = true;
+            this.previewContent = '正在加载...';
             
-            if (this.isTextFile(file.filename)) {
-                try {
+            console.log('Modal opened for file:', file.filename);
+            
+            // 异步加载内容
+            this.loadPreviewContent(file);
+        },
+        
+        async loadPreviewContent(file) {
+            try {
+                if (this.isTextFile(file.filename)) {
+                    console.log('Loading text file content...');
                     const response = await axios.get(`/api/download?id=${file.id}`, {
                         responseType: 'text'
                     });
+                    console.log('Text content loaded:', response.data.substring(0, 50));
                     this.previewContent = response.data;
-                } catch (error) {
-                    this.previewContent = '无法加载文件内容';
+                } else {
+                    console.log('Non-text file, setting default message');
+                    this.previewContent = '此文件类型不支持预览';
                 }
-            } else {
-                this.previewContent = '此文件类型不支持预览';
+            } catch (error) {
+                console.error('Error loading content:', error);
+                this.previewContent = '无法加载文件内容: ' + error.message;
             }
         },
         
         downloadFile(file) {
-            if (!this.user) {
-                this.showMessage('请先登录', 'warning');
-                return;
-            }
-            
             const link = document.createElement('a');
             link.href = `/api/download?id=${file.id}`;
             link.download = file.filename;
@@ -332,7 +599,8 @@ createApp({
             document.body.removeChild(link);
         },
         
-        // 系统监控
+        // === 系统监控 (管理员功能) ===
+        
         async loadSystemStatus() {
             try {
                 const response = await axios.get('/api/system/status');
@@ -413,56 +681,124 @@ createApp({
             }
         },
         
-        // 进程工具函数
-        getCpuClass(cpu) {
-            const usage = parseFloat(cpu);
-            if (usage > 80) return 'high';
-            if (usage > 50) return 'medium';
-            if (usage > 20) return 'low';
-            return 'minimal';
-        },
+        // === 管理面板功能 ===
         
-        getMemoryClass(memory) {
-            const usage = parseFloat(memory);
-            if (usage > 80) return 'high';
-            if (usage > 50) return 'medium';
-            if (usage > 20) return 'low';
-            return 'minimal';
-        },
-        
-        formatNumber(num) {
-            const n = parseInt(num);
-            if (n > 1024 * 1024) {
-                return (n / (1024 * 1024)).toFixed(1) + 'G';
-            } else if (n > 1024) {
-                return (n / 1024).toFixed(1) + 'M';
-            }
-            return n.toString();
-        },
-        
-        // 管理面板功能
-        async loadAdminUsers() {
+        async loadAdminPanel() {
+            console.log('👑 开始加载管理面板...');
+            // 进入管理面板前，先验证一下session是否有效
             try {
-                const response = await axios.get('/api/admin/users');
-                if (response.data.success) {
-                    this.adminUsers = response.data.data;
+                const verifyResponse = await axios.get('/api/user/profile');
+                if (verifyResponse.data.success && verifyResponse.data.data.role === 'admin') {
+                    console.log('✅ Session验证成功，开始加载管理员数据...');
+                    // 验证成功，加载管理员数据
+                    await this.loadAdminUsers();
+                    await this.loadAdminFiles();
+                } else {
+                    console.log('⚠️ Session验证失败，清除用户状态');
+                    this.user = null;
+                    this.showMessage('登录状态已失效，请重新登录', 'error');
+                    this.currentView = 'home';
                 }
             } catch (error) {
+                console.log('⚠️ Session验证异常，清除用户状态', error);
+                this.user = null;
+                this.showMessage('登录验证失败，请重新登录', 'error');
+                this.currentView = 'home';
+            }
+        },
+
+        async loadAdminUsers() {
+            console.log('👥 开始加载管理员用户列表...');
+            try {
+                const response = await axios.get('/api/admin/users');
+                console.log('📡 用户API响应:', response.data);
+                
+                // 处理可能的字符串响应
+                let responseData = response.data;
+                if (typeof responseData === 'string') {
+                    try {
+                        // 清理无效的Unicode转义序列
+                        let cleanedData = responseData.replace(/\\u000[^\w]/g, '?');
+                        cleanedData = cleanedData.replace(/\\u[0-9a-fA-F]{0,3}[^\w]/g, '?');
+                        
+                        responseData = JSON.parse(cleanedData);
+                        console.log('🔄 用户数据JSON解析成功:', responseData);
+                    } catch (parseError) {
+                        console.error('❌ 用户数据JSON解析失败:', parseError);
+                        this.showMessage('用户数据格式错误', 'error');
+                        return;
+                    }
+                }
+                
+                if (responseData.success) {
+                    this.adminUsers = responseData.data;
+                    console.log('✅ 成功加载用户列表，数量:', this.adminUsers.length);
+                } else {
+                    console.error('❌ 用户API返回失败:', responseData.message);
+                    this.showMessage('加载用户列表失败: ' + responseData.message, 'error');
+                }
+            } catch (error) {
+                console.error('❌ 加载用户列表异常:', error);
                 this.showMessage('加载用户列表失败', 'error');
             }
         },
-
+        
         async loadAdminFiles() {
+            console.log('🔧 开始加载管理员文件列表...');
             try {
-                const response = await axios.get('/api/files?page=1&limit=50');
-                if (response.data.success) {
-                    this.adminFiles = response.data.data;
+                const response = await axios.get('/api/admin/files');
+                console.log('📡 API响应:', response.data);
+                console.log('📡 响应类型:', typeof response.data);
+                
+                // 处理可能的字符串响应
+                let responseData = response.data;
+                if (typeof responseData === 'string') {
+                    try {
+                        // 清理无效的Unicode转义序列
+                        let cleanedData = responseData.replace(/\\u000[^\w]/g, '?');
+                        // 也处理其他可能的无效转义
+                        cleanedData = cleanedData.replace(/\\u[0-9a-fA-F]{0,3}[^\w]/g, '?');
+                        
+                        console.log('🧹 清理后的数据长度:', cleanedData.length, '原数据长度:', responseData.length);
+                        
+                        responseData = JSON.parse(cleanedData);
+                        console.log('🔄 JSON解析成功:', responseData);
+                    } catch (parseError) {
+                        console.error('❌ JSON解析失败:', parseError);
+                        console.error('❌ 原始数据片段:', responseData.substring(1030, 1050));
+                        this.showMessage('数据格式错误', 'error');
+                        this.adminFiles = [];
+                        return;
+                    }
+                }
+                
+                if (responseData && responseData.success) {
+                    this.adminFiles = responseData.data;
+                    console.log('✅ 成功加载文件列表，数量:', this.adminFiles.length);
+                    console.log('📋 文件数据:', this.adminFiles);
+                } else {
+                    const errorMsg = responseData ? responseData.message : '未知错误';
+                    console.error('❌ API返回失败:', errorMsg);
+                    this.showMessage('加载文件列表失败: ' + errorMsg, 'error');
+                    this.adminFiles = []; // 清空数组
                 }
             } catch (error) {
-                this.showMessage('加载文件列表失败', 'error');
+                console.error('❌ 加载文件列表异常:', error);
+                
+                // 检查是否是权限问题
+                if (error.response && error.response.status === 401) {
+                    this.showMessage('权限验证失败，请重新登录', 'error');
+                    // 重新验证用户状态
+                    await this.checkLoginStatus();
+                } else if (error.response && error.response.data && error.response.data.message) {
+                    this.showMessage('加载文件列表失败: ' + error.response.data.message, 'error');
+                } else {
+                    this.showMessage('加载文件列表失败: 网络错误', 'error');
+                }
+                this.adminFiles = []; // 清空数组
             }
         },
-
+        
         async deleteUser(userId) {
             if (!confirm('确定要删除该用户吗？此操作不可撤销！')) {
                 return;
@@ -488,7 +824,7 @@ createApp({
                 this.showMessage('删除用户失败', 'error');
             }
         },
-
+        
         async deleteAdminFile(fileId) {
             if (!confirm('确定要删除该文件吗？此操作不可撤销！')) {
                 return;
@@ -507,7 +843,6 @@ createApp({
                 if (response.data.success) {
                     this.showMessage('文件删除成功', 'success');
                     await this.loadAdminFiles();
-                    await this.loadFiles(); // 刷新普通文件列表
                 } else {
                     this.showMessage(response.data.message || '删除失败', 'error');
                 }
@@ -515,8 +850,9 @@ createApp({
                 this.showMessage('删除文件失败', 'error');
             }
         },
-
-        // 工具函数
+        
+        // === 工具函数 ===
+        
         formatFileSize(bytes) {
             if (bytes === 0) return '0 B';
             const k = 1024;
@@ -528,6 +864,37 @@ createApp({
         formatDate(dateString) {
             const date = new Date(dateString);
             return date.toLocaleString('zh-CN');
+        },
+        
+        formatDateShort(dateString) {
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffTime = Math.abs(now - date);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays <= 1) return '今天';
+            if (diffDays <= 7) return `${diffDays} 天前`;
+            if (diffDays <= 30) return `${Math.floor(diffDays / 7)} 周前`;
+            return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+        },
+        
+        getCategoryName(category) {
+            const names = {
+                'documents': '📄 文档',
+                'images': '🖼️ 图片', 
+                'videos': '🎬 视频',
+                'others': '📦 其他'
+            };
+            return names[category] || '📁 文件';
+        },
+        
+        getUniqueUploaders() {
+            const uploaders = [...new Set(this.sharedFiles.map(file => file.uploader))];
+            return uploaders.length;
+        },
+        
+        getTotalSharedSize() {
+            return this.sharedFiles.reduce((total, file) => total + (file.size || 0), 0);
         },
         
         getFileIcon(filename) {
@@ -563,15 +930,43 @@ createApp({
             return ['txt', 'md', 'json', 'xml', 'html', 'css', 'js'].includes(ext);
         },
         
+        getCpuClass(cpu) {
+            const usage = parseFloat(cpu);
+            if (usage > 80) return 'high';
+            if (usage > 50) return 'medium';
+            if (usage > 20) return 'low';
+            return 'minimal';
+        },
+        
+        getMemoryClass(memory) {
+            const usage = parseFloat(memory);
+            if (usage > 80) return 'high';
+            if (usage > 50) return 'medium';
+            if (usage > 20) return 'low';
+            return 'minimal';
+        },
+        
+        formatNumber(num) {
+            const n = parseInt(num);
+            if (n > 1024 * 1024) {
+                return (n / (1024 * 1024)).toFixed(1) + 'G';
+            } else if (n > 1024) {
+                return (n / 1024).toFixed(1) + 'M';
+            }
+            return n.toString();
+        },
+        
         // 模态框管理
         closeModal() {
             this.showLoginModal = false;
             this.showUploadModal = false;
             this.showPreviewModal = false;
-            this.isRegister = false;
+            this.showRegisterForm = false;
             this.loginForm = { username: '', password: '' };
+            this.registerForm = { username: '', password: '' };
             this.uploadFiles = [];
-            this.previewFileData = {};
+            this.uploadCategories = [];
+            this.previewFileData = null;
             this.previewContent = '';
         },
         
@@ -581,40 +976,6 @@ createApp({
             setTimeout(() => {
                 this.message = null;
             }, 3000);
-        }
-    },
-    
-    computed: {
-        filteredProcesses() {
-            if (!this.processFilter) {
-                return this.processes;
-            }
-            
-            const filter = this.processFilter.toLowerCase();
-            return this.processes.filter(process => 
-                process.name.toLowerCase().includes(filter) ||
-                process.user.toLowerCase().includes(filter) ||
-                process.pid.includes(filter)
-            );
-        }
-    },
-    
-    watch: {
-        currentView(newView) {
-            if (newView === 'files') {
-                this.loadFiles();
-            } else if (newView === 'monitor' && this.user?.role === 'admin') {
-                this.loadSystemStatus();
-                this.loadProcesses();
-            } else if (newView === 'admin' && this.user?.role === 'admin') {
-                this.loadAdminUsers();
-                this.loadAdminFiles();
-            }
-        },
-        
-        selectedCategory() {
-            this.pagination.page = 1;
-            this.loadFiles();
         }
     }
 }).mount('#app');

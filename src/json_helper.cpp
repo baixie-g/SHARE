@@ -145,7 +145,10 @@ std::string JsonHelper::serialize_file(const FileInfo& file) {
         << ",\"upload_time\":\"" << escape_json_string(file.upload_time) << "\""
         << ",\"category\":\"" << escape_json_string(file.category) << "\""
         << ",\"download_count\":" << file.download_count
-        << ",\"is_public\":" << (file.is_public ? "true" : "false") << "}";
+        << ",\"is_public\":" << (file.is_public ? "true" : "false")
+        << ",\"is_shared\":" << (file.is_shared ? "true" : "false")
+        << ",\"shared_at\":\"" << escape_json_string(file.shared_at) << "\""
+        << ",\"description\":\"" << escape_json_string(file.description) << "\"}";
     return oss.str();
 }
 
@@ -216,7 +219,9 @@ std::string JsonHelper::serialize_processes(const std::vector<std::map<std::stri
 
 std::string JsonHelper::escape_json_string(const std::string& str) {
     std::string result;
-    for (char c : str) {
+    for (size_t i = 0; i < str.length(); ++i) {
+        unsigned char c = static_cast<unsigned char>(str[i]);
+        
         switch (c) {
             case '"': result += "\\\""; break;
             case '\\': result += "\\\\"; break;
@@ -226,12 +231,16 @@ std::string JsonHelper::escape_json_string(const std::string& str) {
             case '\r': result += "\\r"; break;
             case '\t': result += "\\t"; break;
             default:
-                if (c < 0x20 || c == 0) {
-                    // 正确的unicode转义实现
+                if (c < 0x20) {
+                    // 转义控制字符
                     std::ostringstream oss;
-                    oss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << (unsigned char)c;
+                    oss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<unsigned int>(c);
                     result += oss.str();
+                } else if (c >= 0x80) {
+                    // UTF-8多字节字符，直接保留
+                    result += c;
                 } else {
+                    // 普通ASCII字符
                     result += c;
                 }
                 break;

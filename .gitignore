@@ -1,0 +1,56 @@
+# 编译产物
+build/
+obj/
+*.o
+*.so
+*.a
+*.exe
+bin/g00j_file_share
+
+# 临时文件和日志
+*.log
+*.tmp
+*.temp
+server.log
+
+# 测试文件
+test_*.html
+test_*.txt
+test_*.pdf
+test_*.jpg
+test_*.js
+test_*.mp4
+debug_*.html
+downloaded_file*.txt
+
+# 临时cookies
+cookies*.txt
+
+# 系统文件
+.DS_Store
+Thumbs.db
+*~
+.#*
+#*#
+
+# IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# 数据库备份
+*.db.bak
+*.db.backup
+
+# 上传的文件(可选，根据需要调整)
+# shared/documents/uploaded_*
+# shared/images/uploaded_*
+# shared/videos/uploaded_*
+# shared/others/uploaded_* 

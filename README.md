@@ -69,6 +69,21 @@ make start
 ./start.sh
 ```
 
+### 3.1 后台启动服务器（推荐）
+
+```bash
+# 项目根目录
+sudo ./service_control.sh start     # 启动
+sudo ./service_control.sh status    # 查看运行状态
+sudo ./service_control.sh stop      # 停止
+sudo ./service_control.sh restart   # 重启
+```
+
+> 该脚本使用 `nohup` 将程序以守护进程方式运行，SSH 断开后依然保持运行。
+>
+> - **PID 文件**: `/var/run/112_file_share.pid`
+> - **日志文件**: `/var/log/112_file_share.log`
+
 ### 4. 访问系统
 
 打开浏览器访问 [http://localhost:80](http://localhost:80)
